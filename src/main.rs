@@ -37,24 +37,31 @@ fn get_focused_tab(tab_infos: &Vec<TabInfo>) -> Option<TabInfo> {
     tab_infos.iter().find(|t| t.active).cloned()
 }
 
-/// Returns the focused terminal pane in the given tab.
+/// Returns the focused terminal pane in the given tab, if any.
 ///
 /// `PaneManifest.panes` is a HashMap keyed by tab position (0-indexed), containing
 /// all panes in that tab including tiled, floating, and suppressed panes.
 ///
-/// When harpoon itself has focus (it's a plugin pane), no terminal pane will have
-/// `is_focused = true`, so we fall back to the first non-plugin pane in the tab.
+/// `PaneInfo.is_focused` is documented as "focused in its layer (tiled or floating)".
+/// In layouts with stacks/splits this can flag MULTIPLE non-plugin panes as focused
+/// in the same tab — effectively one per layout-subtree-leaf, not just the single
+/// pane the user is currently typing into. To resolve that ambiguity we pick the
+/// highest pane id among the focused terminal panes, which tracks the most
+/// recently created/operated pane (zellij assigns ids monotonically).
+///
+/// When harpoon itself has focus (it's a plugin pane), no terminal pane is
+/// flagged in the floating layer and this returns None. Callers must NOT
+/// overwrite previously captured focus state with None — the most recent real
+/// terminal focus is the pane the user came from when opening harpoon.
 ///
 /// Docs: https://docs.rs/zellij-tile/latest/zellij_tile/prelude/struct.PaneManifest.html
 fn get_focused_pane(tab_position: usize, pane_manifest: &PaneManifest) -> Option<PaneInfo> {
     let panes = pane_manifest.panes.get(&tab_position)?;
-    // First, try to find a focused non-plugin pane
-    if let Some(pane) = panes.iter().find(|p| p.is_focused && !p.is_plugin) {
-        return Some(pane.clone());
-    }
-    // Fallback: if no focused non-plugin pane (e.g. harpoon itself has focus),
-    // return the first non-plugin pane in the tab
-    panes.iter().find(|p| !p.is_plugin).cloned()
+    panes
+        .iter()
+        .filter(|p| p.is_focused && !p.is_plugin)
+        .max_by_key(|p| p.id)
+        .cloned()
 }
 
 //--------->
@@ -157,13 +164,20 @@ impl State {
             self.sort_panes();
         }
 
-        // Track which pane the user was in before harpoon opened
+        // Track which pane the user was in before harpoon opened.
+        // Only update when a real terminal pane is currently focused; when
+        // harpoon itself has focus (e.g. immediately after the user pressed
+        // the launcher keybind), get_focused_pane returns None and we keep
+        // the previously captured focus. This is what makes `a` add the pane
+        // the user actually came from instead of always adding the first pane
+        // in the tab.
         let focused_tab = get_focused_tab(&tab_info)?;
-        let focused_pane_info = get_focused_pane(focused_tab.position, &pane_manifest)?;
-        self.focused_pane = Some(Pane {
-            pane_info: focused_pane_info,
-            tab_info: focused_tab,
-        });
+        if let Some(focused_pane_info) = get_focused_pane(focused_tab.position, &pane_manifest) {
+            self.focused_pane = Some(Pane {
+                pane_info: focused_pane_info,
+                tab_info: focused_tab,
+            });
+        }
 
         // Move cursor to the focused pane if it's in the list
         if let Some(focused) = &self.focused_pane {
