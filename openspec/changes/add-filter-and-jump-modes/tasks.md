@@ -27,12 +27,12 @@
 
 ## 2. Matcher (TDD, static dispatch)
 
-- [ ] 2.1 In `harpoon-core/src/matcher.rs`, define `pub trait Matcher { fn match_indices(&mut self, haystack: &str, needle: &str) -> Option<(i32, Vec<usize>)>; }` returning `(score, char_indices)` where indices are **character (Unicode scalar) positions**. Use `&mut self` to accommodate `nucleo::Matcher`'s internal scratch buffers; in-tree fallback ignores the mutability
-- [ ] 2.2 Write failing tests FIRST (`cargo test -p harpoon-core matcher::`): empty needle returns `Some((max_score, vec![]))`; no-match returns `None`; ASCII haystack returns char indices; multi-byte haystack `"📦 build"` with needle `"b"` returns `[2]` not `[4]`; case-insensitive matching; score ordering puts contiguous matches above scattered
-- [ ] 2.3 Implement `FuzzyMatcher` to make tests pass (wrapping `nucleo-matcher` if Phase 0 spike confirmed; else in-tree subseq matcher iterating `haystack.char_indices()` and recording char positions). `FuzzyMatcher` derives `Default`
-- [ ] 2.4 Implement `SubstringMatcher` (case-insensitive ASCII fold; returns contiguous char-index range as the index list). Derives `Default`
-- [ ] 2.5 Define `pub enum MatcherImpl { Fuzzy(FuzzyMatcher), Substring(SubstringMatcher) }` with `Default = Fuzzy(FuzzyMatcher::default())` and a `match_indices` impl dispatching to the inner matcher. Add `pub fn from_config(config: &Config) -> MatcherImpl` constructor
-- [ ] 2.6 Run `cargo test -p harpoon-core` and confirm all matcher tests pass before moving on
+- [x] 2.1 In `harpoon-core/src/matcher.rs`, define `pub trait Matcher { fn match_indices(&mut self, haystack: &str, needle: &str) -> Option<(i32, Vec<usize>)>; }` returning `(score, char_indices)` where indices are **character (Unicode scalar) positions**. Use `&mut self` to accommodate `nucleo::Matcher`'s internal scratch buffers; in-tree fallback ignores the mutability
+- [x] 2.2 Write failing tests FIRST (`cargo test -p harpoon-core matcher::`): empty needle returns `Some((max_score, vec![]))`; no-match returns `None`; ASCII haystack returns char indices; multi-byte haystack `"📦 build"` with needle `"b"` returns `[2]` not `[4]`; case-insensitive matching; score ordering puts contiguous matches above scattered
+- [x] 2.3 Implement `FuzzyMatcher` to make tests pass (wrapping `nucleo-matcher` since Phase 0.4 spike confirmed). `FuzzyMatcher` has manual `Default` (nucleo's Matcher doesn't derive Default itself)
+- [x] 2.4 Implement `SubstringMatcher` (case-insensitive ASCII fold; returns contiguous char-index range as the index list). Derives `Default`
+- [x] 2.5 Define `pub enum MatcherImpl { Fuzzy(FuzzyMatcher), Substring(SubstringMatcher) }` with `Default = Fuzzy(FuzzyMatcher::default())` and a `match_indices` impl dispatching to the inner matcher. Add `pub fn from_config(config: &Config) -> MatcherImpl` constructor
+- [x] 2.6 Run `cargo test -p harpoon-core` and confirm all matcher tests pass before moving on — 52 tests pass (19 matcher + 33 foundation)
 
 ## 3. Pure dispatch core & FFI conversion (TDD)
 

@@ -15,6 +15,7 @@
 pub mod config;
 pub mod effect;
 pub mod input;
+pub mod matcher;
 pub mod mode;
 pub mod pane;
 
@@ -22,5 +23,6 @@ pub mod pane;
 pub use config::{Config, MatcherKind};
 pub use effect::Effect;
 pub use input::{InputKey, ModifierSet};
+pub use matcher::{FuzzyMatcher, MatchResult, Matcher, MatcherImpl, SubstringMatcher};
 pub use mode::Mode;
 pub use pane::Pane;
