@@ -13,6 +13,7 @@
 //! design rationale.
 
 pub mod config;
+pub mod dispatch;
 pub mod effect;
 pub mod input;
 pub mod matcher;
@@ -21,6 +22,10 @@ pub mod pane;
 
 // Re-export the most-used types at the crate root for ergonomics.
 pub use config::{Config, MatcherKind};
+pub use dispatch::{
+    clamp_selected_to_view, dispatch, focused_idx, reanchor_selected_to_focus, DispatchContext,
+    DispatchState,
+};
 pub use effect::Effect;
 pub use input::{InputKey, ModifierSet};
 pub use matcher::{FuzzyMatcher, MatchResult, Matcher, MatcherImpl, SubstringMatcher};
