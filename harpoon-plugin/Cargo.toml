@@ -1,0 +1,25 @@
+[package]
+name = "harpoon"
+version = "0.1.0"
+edition = "2021"
+authors = ["cartwmic", "Ignacio Aleman <onsen@duck.com>"]
+description = "harpoon-zellij plugin (cdylib). FFI shim around harpoon-core."
+autobins = false
+autoexamples = false
+autotests = false
+autobenches = false
+
+# NOTE: Package name is `harpoon` (not `harpoon-plugin`) so the built
+# artifact path stays `target/wasm32-wasip1/release/harpoon.wasm`. The
+# directory name (`harpoon-plugin/`) differs from the package name.
+
+[lib]
+name = "harpoon"
+crate-type = ["cdylib"]
+path = "src/main.rs"
+
+[dependencies]
+harpoon-core = { path = "../harpoon-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+zellij-tile = { workspace = true }
