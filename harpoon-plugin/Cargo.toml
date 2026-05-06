@@ -3,20 +3,16 @@ name = "harpoon"
 version = "0.1.0"
 edition = "2021"
 authors = ["cartwmic", "Ignacio Aleman <onsen@duck.com>"]
-description = "harpoon-zellij plugin (cdylib). FFI shim around harpoon-core."
-autobins = false
-autoexamples = false
-autotests = false
-autobenches = false
+description = "harpoon-zellij plugin (wasm32-wasip1 binary). FFI shim around harpoon-core."
 
-# NOTE: Package name is `harpoon` (not `harpoon-plugin`) so the built
-# artifact path stays `target/wasm32-wasip1/release/harpoon.wasm`. The
-# directory name (`harpoon-plugin/`) differs from the package name.
-
-[lib]
-name = "harpoon"
-crate-type = ["cdylib"]
-path = "src/main.rs"
+# Package name is `harpoon` (not `harpoon-plugin`) so the built artifact
+# path stays `target/wasm32-wasip1/release/harpoon.wasm`. The directory name
+# (`harpoon-plugin/`) differs from the package name.
+#
+# Note: zellij wasm plugins compile as a `[[bin]]` (NOT a `cdylib`) because
+# `wasm32-wasip1` targets need the `_start` and `__main_void` exports that
+# come from binary builds. Cargo's default `src/main.rs` discovery handles
+# this; do NOT add an explicit `[lib]` block here.
 
 [dependencies]
 harpoon-core = { path = "../harpoon-core" }
