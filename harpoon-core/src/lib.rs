@@ -12,9 +12,11 @@
 //! See `openspec/changes/add-filter-and-jump-modes/design.md` for the full
 //! design rationale.
 
+pub mod bookmark;
 pub mod config;
 pub mod dispatch;
 pub mod effect;
+pub mod freeze;
 pub mod input;
 pub mod matcher;
 pub mod mode;
@@ -29,5 +31,7 @@ pub use dispatch::{
 pub use effect::Effect;
 pub use input::{InputKey, ModifierSet};
 pub use matcher::{FuzzyMatcher, MatchResult, Matcher, MatcherImpl, SubstringMatcher};
+pub use bookmark::{BookmarkStore, PaneBookmark};
+pub use freeze::freeze_on_user_mutation;
 pub use mode::Mode;
 pub use pane::Pane;

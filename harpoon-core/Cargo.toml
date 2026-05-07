@@ -11,3 +11,6 @@ crate-type = ["lib"]
 [dependencies]
 serde = { workspace = true }
 nucleo-matcher = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
