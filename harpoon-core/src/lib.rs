@@ -24,6 +24,7 @@ pub mod jump;
 pub mod matcher;
 pub mod mode;
 pub mod pane;
+pub mod render;
 pub mod slot;
 
 // Re-export the most-used types at the crate root for ergonomics.
@@ -42,4 +43,8 @@ pub use jump::handle_jump_key;
 pub use matcher::{FuzzyMatcher, MatchResult, Matcher, MatcherImpl, SubstringMatcher};
 pub use mode::Mode;
 pub use pane::Pane;
+pub use render::{
+    build_header, build_hint_line, build_row_entries, build_rows, compute_layout_budget,
+    HeaderLine, HighlightKind, LayoutBudget, RenderHeader, RenderRow, RowEntry,
+};
 pub use slot::{slot_char_from_index, slot_index_from_char};
