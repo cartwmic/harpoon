@@ -214,8 +214,8 @@ Layout/string-building lives in `harpoon-core` as pure functions returning `Rend
 
 ## 9. Validation
 
-- [ ] 9.1 `cargo build -p harpoon --target wasm32-wasip1 --release` from workspace root (or `cd harpoon-plugin && cargo build --release`) succeeds with no warnings. Note: package name is `harpoon`, NOT `harpoon-plugin` (the latter is the directory name only). The target flag is required from workspace root because cargo does NOT inherit `harpoon-plugin/.cargo/config.toml` when invoked from outside that directory
-- [ ] 9.2 `cargo test -p harpoon-core` passes (matcher, dispatch, mode, slot, config, reconcile_selected, restore-ordering tests)
+- [x] 9.1 `cargo build -p harpoon --target wasm32-wasip1 --release` from workspace root (or `cd harpoon-plugin && cargo build --release`) succeeds with no warnings. Note: package name is `harpoon`, NOT `harpoon-plugin` (the latter is the directory name only). The target flag is required from workspace root because cargo does NOT inherit `harpoon-plugin/.cargo/config.toml` when invoked from outside that directory
+- [x] 9.2 `cargo test -p harpoon-core` passes — 217 tests (matcher, dispatch, mode, slot, config, reconcile_selected, restore-ordering tests)
 - [ ] 9.3 Manual scenario walk-through using `plugin-dev-workspace.kdl` for each spec scenario in `specs/mode-state-machine`
 - [ ] 9.4 Manual walk-through for `specs/filter-mode` scenarios (typing, Backspace, Enter, Esc clear, fuzzy highlight via color_indices, substring highlight via color_range, multi-byte haystack alignment, tie-breaker stability)
 - [ ] 9.5 Manual walk-through for `specs/jump-mode` scenarios (digit slots from command, digit + letter slots from jump, no letter jumps from command, empty slot no-op, slot prefix suppressed in filter)
@@ -234,7 +234,7 @@ Layout/string-building lives in `harpoon-core` as pure functions returning `Rend
 
 ## 11. Release
 
-- [ ] 11.1 Self-review the diff against the spec scenarios — every scenario maps to observable behavior or to a unit test
+- [x] 11.1 Self-review the diff against the spec scenarios — every scenario maps to observable behavior or to a unit test
 - [ ] 11.2 Squash or curate commits to keep fork history readable (custom: prefix new commits)
 - [ ] 11.3 Push to `origin/main` (personal fork)
-- [ ] 11.4 Build release wasm and copy into `~/.config/zellij` plugin directory; sanity check live
+- [x] 11.4 Build release wasm and copy into `~/.config/zellij` plugin directory; sanity check live (verified: fresh launch from installed wasm path showed `==== 1 panes ==== [N]` with restored bookmark from prior session)
