@@ -225,12 +225,12 @@ Layout/string-building lives in `harpoon-core` as pure functions returning `Rend
 
 ## 10. Documentation
 
-- [ ] 10.1 Update `README.md` with the new mode model (state diagram), per-mode keymap tables, and Esc semantics; explicitly document that letter slots require entering jump mode
-- [ ] 10.2 Document `default_mode`, `matcher`, `show_slots` config keys with example kdl block; note case-insensitive parsing
-- [ ] 10.3 Add a "Reordering" section showing K/J and slot-mapping behavior, including the order-canonical guarantee across session reloads and the duplicate-title limitation
-- [ ] 10.4 Note the upstream divergence — this fork no longer matches `Nacho114/harpoon`'s key model
-- [ ] 10.5 Document the persistence schema v1 → v2 migration (transparent to users; v1 files auto-upgrade on next save)
-- [ ] 10.6 Note the carried-forward known macOS focus bug in the README "Known issues" section
+- [x] 10.1 Update `README.md` with the new mode model (state diagram), per-mode keymap tables, and Esc semantics; explicitly document that letter slots require entering jump mode
+- [x] 10.2 Document `default_mode`, `matcher`, `show_slots` config keys with example kdl block; note case-insensitive parsing
+- [x] 10.3 Add a "Reordering" section showing K/J and slot-mapping behavior, including the order-canonical guarantee across session reloads and the duplicate-title limitation
+- [x] 10.4 Note the upstream divergence — this fork no longer matches `Nacho114/harpoon`'s key model
+- [x] 10.5 Document the persistence schema v1 → v2 migration (transparent to users; v1 files auto-upgrade on next save)
+- [x] 10.6 Note the carried-forward known macOS focus bug in the README "Known issues" section
 
 ## 11. Release
 
