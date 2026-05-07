@@ -124,13 +124,13 @@
 
 ## 6. Jump mode
 
-- [ ] 6.1 Implement `handle_jump_key(state, ctx, key)`: `1-9`/`a-z` (modifier-plain post-normalization) → resolve via `state.panes.get(slot_index).and_then(Option::as_ref)`. If `Some(pane)` (Live), return `[Effect::Close, Effect::FocusPane(pane.id)]`. If `Some(None)` (placeholder), return `vec![]` (no-op; saved-position contract preserved). If `None` (beyond list), return `vec![]`. No freeze (jump is not a mutation)
-- [ ] 6.2 `Esc` → set mode to `Command`, return `vec![Effect::Render]`
-- [ ] 6.3 All other keys (uppercase letters, Backspace, arrows, etc.) → return `vec![]` (no Render, no mutation)
-- [ ] 6.4 In `harpoon-core`: `pub fn slot_index_from_char(c: char) -> Option<usize>`: `'1'..='9'` → `0..=8`, `'a'..='z'` → `9..=34`, else `None`
-- [ ] 6.5 In `harpoon-core`: `pub fn slot_char_from_index(i: usize) -> Option<char>`: inverse of above
-- [ ] 6.6 Write failing tests FIRST: digit slot 1 → index 0; letter slot `b` → index 10; `z` → index 34; out-of-range slot returns `None`; uppercase letters return `None`; round-trip `slot_char_from_index(slot_index_from_char(c).unwrap())` returns `c` for all valid inputs
-- [ ] 6.7 Write failing tests for placeholder no-op: in jump mode with a placeholder bookmark at saved index 1 and no live pane there, pressing `2` returns `vec![]` (no Close, no FocusPane). When the underlying bookmark resolves and `state.panes` now has a live pane at index 1, pressing `2` returns `[Effect::Close, Effect::FocusPane(id)]`
+- [x] 6.1 Implement `handle_jump_key(state, ctx, key)`: `1-9`/`a-z` (modifier-plain post-normalization) → resolve via `state.panes.get(slot_index).and_then(Option::as_ref)`. If `Some(pane)` (Live), return `[Effect::Close, Effect::FocusPane(pane.id)]`. If `Some(None)` (placeholder), return `vec![]` (no-op; saved-position contract preserved). If `None` (beyond list), return `vec![]`. No freeze (jump is not a mutation)
+- [x] 6.2 `Esc` → set mode to `Command`, return `vec![Effect::Render]`
+- [x] 6.3 All other keys (uppercase letters, Backspace, arrows, etc.) → return `vec![]` (no Render, no mutation)
+- [x] 6.4 In `harpoon-core`: `pub fn slot_index_from_char(c: char) -> Option<usize>`: `'1'..='9'` → `0..=8`, `'a'..='z'` → `9..=34`, else `None`
+- [x] 6.5 In `harpoon-core`: `pub fn slot_char_from_index(i: usize) -> Option<char>`: inverse of above
+- [x] 6.6 Write failing tests FIRST: digit slot 1 → index 0; letter slot `b` → index 10; `z` → index 34; out-of-range slot returns `None`; uppercase letters return `None`; round-trip `slot_char_from_index(slot_index_from_char(c).unwrap())` returns `c` for all valid inputs
+- [x] 6.7 Write failing tests for placeholder no-op: in jump mode with a placeholder bookmark at saved index 1 and no live pane there, pressing `2` returns `vec![]` (no Close, no FocusPane). When the underlying bookmark resolves and `state.panes` now has a live pane at index 1, pressing `2` returns `[Effect::Close, Effect::FocusPane(id)]`
 
 ## 7. Render layer (plugin crate only)
 

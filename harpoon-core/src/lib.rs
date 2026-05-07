@@ -20,9 +20,11 @@ pub mod effect;
 pub mod filter;
 pub mod freeze;
 pub mod input;
+pub mod jump;
 pub mod matcher;
 pub mod mode;
 pub mod pane;
+pub mod slot;
 
 // Re-export the most-used types at the crate root for ergonomics.
 pub use bookmark::{BookmarkStore, PaneBookmark};
@@ -36,6 +38,8 @@ pub use effect::Effect;
 pub use filter::{filtered_indices, handle_filter_key};
 pub use freeze::freeze_on_user_mutation;
 pub use input::{InputKey, ModifierSet};
+pub use jump::handle_jump_key;
 pub use matcher::{FuzzyMatcher, MatchResult, Matcher, MatcherImpl, SubstringMatcher};
 pub use mode::Mode;
 pub use pane::Pane;
+pub use slot::{slot_char_from_index, slot_index_from_char};

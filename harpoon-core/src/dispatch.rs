@@ -147,7 +147,7 @@ pub fn dispatch(
     match state.mode {
         Mode::Command => crate::command::handle_command_key(state, ctx, store, key),
         Mode::Filter => crate::filter::handle_filter_key(state, ctx, key),
-        Mode::Jump => Vec::new(),
+        Mode::Jump => crate::jump::handle_jump_key(state, ctx, key),
     }
 }
 
@@ -408,12 +408,35 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_jump_mode_returns_empty_pending_phase_6() {
+    fn dispatch_jump_mode_with_no_panes_returns_empty() {
         let mut s = DispatchState::default();
         s.mode = Mode::Jump;
         let ctx = DispatchContext::default();
         let mut store = crate::bookmark::BookmarkStore::default();
         let effects = dispatch(&mut s, &ctx, &mut store, InputKey::Char('1', ModifierSet::PLAIN));
         assert!(effects.is_empty());
+    }
+
+    #[test]
+    fn dispatch_jump_mode_with_live_pane_emits_close_focus() {
+        use crate::pane::Pane;
+        let mut s = DispatchState::default();
+        s.mode = Mode::Jump;
+        s.panes = vec![Some(Pane {
+            id: 7,
+            tab_name: "t".into(),
+            pane_title: "x".into(),
+            tab_position: 0,
+        })];
+        let ctx = DispatchContext::default();
+        let mut store = crate::bookmark::BookmarkStore::default();
+        let effects = dispatch(&mut s, &ctx, &mut store, InputKey::Char('1', ModifierSet::PLAIN));
+        assert_eq!(
+            effects,
+            vec![
+                crate::effect::Effect::Close,
+                crate::effect::Effect::FocusPane(7)
+            ]
+        );
     }
 }

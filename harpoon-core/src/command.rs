@@ -25,21 +25,7 @@ use crate::freeze::freeze_on_user_mutation;
 use crate::input::InputKey;
 use crate::mode::Mode;
 use crate::pane::Pane;
-
-/// Resolve a slot character to a `panes` index. Digits `'1'..='9'` map to
-/// `0..=8`; letters `'a'..='z'` map to `9..=34`. Returns `None` for any
-/// other char.
-fn slot_index_from_char(c: char) -> Option<usize> {
-    if c.is_ascii_digit() && c != '0' {
-        // '1' -> 0, '9' -> 8
-        Some((c as usize) - ('1' as usize))
-    } else if c.is_ascii_lowercase() {
-        // 'a' -> 9, 'z' -> 34
-        Some(9 + (c as usize) - ('a' as usize))
-    } else {
-        None
-    }
-}
+use crate::slot::slot_index_from_char;
 
 /// Top-level command-mode handler. Per `tasks.md` task 4.1, each branch
 /// enumerates its `Vec<Effect>` explicitly. See module-level docs for the
@@ -885,26 +871,4 @@ mod tests {
         assert_eq!(s.panes[1].as_ref().unwrap().id, 11);
     }
 
-    // ── slot_index_from_char unit tests ───────────────────────────────────
-
-    #[test]
-    fn slot_index_digits() {
-        assert_eq!(slot_index_from_char('1'), Some(0));
-        assert_eq!(slot_index_from_char('9'), Some(8));
-        assert_eq!(slot_index_from_char('0'), None); // 0 is NOT a slot
-    }
-
-    #[test]
-    fn slot_index_letters() {
-        assert_eq!(slot_index_from_char('a'), Some(9));
-        assert_eq!(slot_index_from_char('b'), Some(10));
-        assert_eq!(slot_index_from_char('z'), Some(34));
-    }
-
-    #[test]
-    fn slot_index_other_chars() {
-        assert_eq!(slot_index_from_char('A'), None);
-        assert_eq!(slot_index_from_char('!'), None);
-        assert_eq!(slot_index_from_char(' '), None);
-    }
 }
