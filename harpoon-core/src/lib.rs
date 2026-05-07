@@ -25,6 +25,7 @@ pub mod matcher;
 pub mod mode;
 pub mod pane;
 pub mod render;
+pub mod restore;
 pub mod slot;
 
 // Re-export the most-used types at the crate root for ergonomics.
@@ -47,4 +48,5 @@ pub use render::{
     build_header, build_hint_line, build_row_entries, build_rows, compute_layout_budget,
     HeaderLine, HighlightKind, LayoutBudget, RenderHeader, RenderRow, RowEntry,
 };
+pub use restore::{resolve_restore_round, VisiblePane};
 pub use slot::{slot_char_from_index, slot_index_from_char};
