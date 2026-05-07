@@ -13,6 +13,7 @@
 //! design rationale.
 
 pub mod bookmark;
+pub mod command;
 pub mod config;
 pub mod dispatch;
 pub mod effect;
@@ -32,6 +33,7 @@ pub use effect::Effect;
 pub use input::{InputKey, ModifierSet};
 pub use matcher::{FuzzyMatcher, MatchResult, Matcher, MatcherImpl, SubstringMatcher};
 pub use bookmark::{BookmarkStore, PaneBookmark};
+pub use command::handle_command_key;
 pub use freeze::freeze_on_user_mutation;
 pub use mode::Mode;
 pub use pane::Pane;

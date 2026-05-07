@@ -136,20 +136,19 @@ pub fn focused_idx(panes: &[Option<Pane>], id: Option<u32>) -> Option<usize> {
 /// Top-level dispatch entry point. Matches on `state.mode` and delegates to
 /// the per-mode handler.
 ///
-/// **Currently a skeleton**: the per-mode handlers in `command.rs`,
-/// `filter.rs`, `jump.rs` are stubbed (return `vec![]`). They land in a
-/// later phase; the function body here is the integration shape.
+/// Filter and Jump handlers land in Phases 5 and 6; for now they return
+/// `vec![]` so this dispatcher compiles and the structural shape is correct.
 pub fn dispatch(
     state: &mut DispatchState,
     ctx: &DispatchContext,
+    store: &mut crate::bookmark::BookmarkStore,
     key: InputKey,
 ) -> Vec<crate::effect::Effect> {
-    // Phase 4-6 land actual handlers; for now, dispatch returns an empty
-    // effect Vec so this skeleton compiles and integration tests can pass
-    // structural checks (mode dispatch matches the right arm) without
-    // requiring the handlers to exist yet.
-    let _ = (state, ctx, key);
-    Vec::new()
+    match state.mode {
+        Mode::Command => crate::command::handle_command_key(state, ctx, store, key),
+        Mode::Filter => Vec::new(),
+        Mode::Jump => Vec::new(),
+    }
 }
 
 #[cfg(test)]
@@ -386,10 +385,34 @@ mod tests {
     // ---------- dispatch (skeleton) ----------
 
     #[test]
-    fn dispatch_skeleton_returns_empty_for_now() {
+    fn dispatch_unbound_in_command_returns_empty() {
+        // Letter `b` is unbound in command mode (not a digit slot, not a
+        // command key). Handler returns vec![] per command.rs contract.
         let mut s = DispatchState::default();
+        s.mode = Mode::Command;
         let ctx = DispatchContext::default();
-        let effects = dispatch(&mut s, &ctx, InputKey::Char('a', ModifierSet::PLAIN));
-        assert!(effects.is_empty(), "skeleton dispatch returns empty Vec");
+        let mut store = crate::bookmark::BookmarkStore::default();
+        let effects = dispatch(&mut s, &ctx, &mut store, InputKey::Char('b', ModifierSet::PLAIN));
+        assert!(effects.is_empty());
+    }
+
+    #[test]
+    fn dispatch_filter_mode_returns_empty_pending_phase_5() {
+        let mut s = DispatchState::default();
+        s.mode = Mode::Filter;
+        let ctx = DispatchContext::default();
+        let mut store = crate::bookmark::BookmarkStore::default();
+        let effects = dispatch(&mut s, &ctx, &mut store, InputKey::Char('a', ModifierSet::PLAIN));
+        assert!(effects.is_empty());
+    }
+
+    #[test]
+    fn dispatch_jump_mode_returns_empty_pending_phase_6() {
+        let mut s = DispatchState::default();
+        s.mode = Mode::Jump;
+        let ctx = DispatchContext::default();
+        let mut store = crate::bookmark::BookmarkStore::default();
+        let effects = dispatch(&mut s, &ctx, &mut store, InputKey::Char('1', ModifierSet::PLAIN));
+        assert!(effects.is_empty());
     }
 }
