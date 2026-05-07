@@ -146,7 +146,7 @@ pub fn dispatch(
 ) -> Vec<crate::effect::Effect> {
     match state.mode {
         Mode::Command => crate::command::handle_command_key(state, ctx, store, key),
-        Mode::Filter => Vec::new(),
+        Mode::Filter => crate::filter::handle_filter_key(state, ctx, key),
         Mode::Jump => Vec::new(),
     }
 }
@@ -397,13 +397,14 @@ mod tests {
     }
 
     #[test]
-    fn dispatch_filter_mode_returns_empty_pending_phase_5() {
+    fn dispatch_filter_mode_appends_to_query() {
         let mut s = DispatchState::default();
         s.mode = Mode::Filter;
         let ctx = DispatchContext::default();
         let mut store = crate::bookmark::BookmarkStore::default();
         let effects = dispatch(&mut s, &ctx, &mut store, InputKey::Char('a', ModifierSet::PLAIN));
-        assert!(effects.is_empty());
+        assert_eq!(effects, vec![crate::effect::Effect::Render]);
+        assert_eq!(s.query, "a");
     }
 
     #[test]
