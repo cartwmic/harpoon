@@ -1,73 +1,56 @@
+//! Disk I/O wrapper around `harpoon_core::BookmarkStore`.
+//!
+//! Schema is the v2 envelope: `{ "version": 2, "bookmarks": [...] }`. v1
+//! files (bare `Vec<PaneBookmark>` array) are read transparently and
+//! re-saved as v2.
+//!
+//! See `openspec/changes/add-filter-and-jump-modes/design.md`:
+//! - "Decision: Persistence schema v2 — envelope with single bookmarks Vec"
+//! - "Decision: Persistence has_changed covers full persisted shape"
+//! - "Decision: Schema version detection via JSON envelope shape"
+
 use std::collections::BTreeMap;
 
 use serde::{Deserialize, Serialize};
 use zellij_tile::prelude::*;
 
-use crate::Pane;
+use harpoon_core::{BookmarkStore, PaneBookmark};
 
-#[derive(Clone, Serialize, Deserialize)]
-struct PaneBookmark {
-    tab_name: String,
-    pane_title: String,
-}
-
-#[derive(Default)]
-pub struct Persistence {
-    pending_bookmarks: Vec<PaneBookmark>,
-    last_saved_state: Vec<(String, String)>,
+/// v2 on-disk envelope.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PersistedV2 {
+    pub version: u8,
+    pub bookmarks: Vec<PaneBookmark>,
 }
 
 #[derive(Debug)]
 pub enum PersistenceError {
-    LoadFromDiskFailed(serde_json::Error),
+    LoadFromDiskFailed(String),
 }
 
 impl std::fmt::Display for PersistenceError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             PersistenceError::LoadFromDiskFailed(e) => {
-                write!(f, "Failed to load session from disk: {e:?}")
+                write!(f, "Failed to load session from disk: {e}")
             }
         }
     }
 }
 
+/// I/O wrapper. The actual `BookmarkStore` lives on `State` (so dispatch
+/// handlers can mutate it via `&mut BookmarkStore`); this struct only
+/// provides save/load mechanics.
+#[derive(Default)]
+pub struct Persistence {
+    /// Last canonical envelope written to disk, used for `has_changed`
+    /// comparison.
+    last_saved_state: Option<PersistedV2>,
+}
+
 impl Persistence {
-    pub fn match_pending_bookmarks(
-        &mut self,
-        panes: &[Pane],
-        pane_manifest: &PaneManifest,
-        tab_infos: &[TabInfo],
-    ) -> Vec<Pane> {
-        if self.pending_bookmarks.is_empty() {
-            return Vec::new();
-        }
-
-        let mut current_pane_ids: Vec<u32> = panes.iter().map(|p| p.pane_info.id).collect();
-        let mut new_panes: Vec<Pane> = Vec::new();
-
-        self.pending_bookmarks.retain(|bookmark| {
-            match find_pane_for_bookmark(bookmark, pane_manifest, tab_infos, &current_pane_ids) {
-                Some(pane) => {
-                    current_pane_ids.push(pane.pane_info.id);
-                    new_panes.push(pane);
-                    false
-                }
-                None => true,
-            }
-        });
-
-        new_panes
-    }
-
-    pub fn has_changed(&self, panes: &[Pane]) -> bool {
-        let current: Vec<(String, String)> = panes
-            .iter()
-            .map(|p| (p.tab_info.name.clone(), p.pane_info.title.clone()))
-            .collect();
-        current != self.last_saved_state
-    }
-
+    /// Path to the persistence directory (XDG-conformant; matches today's
+    /// existing fork).
     fn data_dir_path(&self) -> String {
         "${XDG_DATA_HOME:-$HOME/.local/share}/zellij-harpoon".to_string()
     }
@@ -77,6 +60,9 @@ impl Persistence {
         Some(format!("{}/{}.json", self.data_dir_path(), session))
     }
 
+    /// Kick off an async `cat` to read the session file. The result arrives
+    /// as `Event::RunCommandResult` with `context["source"] == "load"`,
+    /// processed by [`Persistence::on_load_command`].
     pub fn load_from_disk(&self, session_name: &Option<String>) {
         let Some(file_path) = self.session_file_path(session_name) else {
             return;
@@ -87,34 +73,74 @@ impl Persistence {
         run_command(&["sh", "-c", &cmd], context);
     }
 
-    pub fn on_load_command(&mut self, content: &str) -> Result<(), PersistenceError> {
+    /// Process the result of `load_from_disk`'s `cat` command. Tries v2
+    /// envelope first, falls back to v1 bare array. Populates `store`.
+    pub fn on_load_command(
+        &mut self,
+        store: &mut BookmarkStore,
+        content: &str,
+    ) -> Result<(), PersistenceError> {
+        // Try v2 envelope first.
+        if let Ok(v2) = serde_json::from_str::<PersistedV2>(content) {
+            store.bookmarks = v2.bookmarks.clone();
+            self.last_saved_state = Some(v2);
+            // pane_id_to_bookmark_idx stays empty until restore_round resolves.
+            return Ok(());
+        }
+        // Fall back to v1 bare array.
         match serde_json::from_str::<Vec<PaneBookmark>>(content) {
-            Ok(bookmarks) => {
-                self.pending_bookmarks = bookmarks;
-                self.last_saved_state = self
-                    .pending_bookmarks
-                    .iter()
-                    .map(|b| (b.tab_name.clone(), b.pane_title.clone()))
-                    .collect();
+            Ok(mut bookmarks) => {
+                // Assign indices in array order so v1 files inherit positions.
+                for (i, b) in bookmarks.iter_mut().enumerate() {
+                    if b.index.is_none() {
+                        b.index = Some(i as u16);
+                    }
+                }
+                store.bookmarks = bookmarks.clone();
+                // Don't set last_saved_state — next save writes v2 form.
+                self.last_saved_state = None;
                 Ok(())
             }
-            Err(e) => Err(PersistenceError::LoadFromDiskFailed(e)),
+            Err(e) => Err(PersistenceError::LoadFromDiskFailed(e.to_string())),
         }
     }
 
-    pub fn save_to_disk(&mut self, session_name: &Option<String>, panes: &[Pane]) {
+    /// True iff the current `store.bookmarks` differs from the last
+    /// successfully-saved envelope.
+    pub fn has_changed(&self, store: &BookmarkStore) -> bool {
+        let candidate = PersistedV2 {
+            version: 2,
+            bookmarks: store.bookmarks.clone(),
+        };
+        match &self.last_saved_state {
+            Some(prev) => &candidate != prev,
+            None => !store.bookmarks.is_empty(), // first save threshold
+        }
+    }
+
+    /// Write the current `store.bookmarks` to disk if it differs from the
+    /// last saved snapshot.
+    pub fn save_if_changed(
+        &mut self,
+        store: &BookmarkStore,
+        session_name: &Option<String>,
+    ) {
+        if !self.has_changed(store) {
+            return;
+        }
+        self.save_to_disk(store, session_name);
+    }
+
+    /// Write the current `store.bookmarks` directly.
+    pub fn save_to_disk(&mut self, store: &BookmarkStore, session_name: &Option<String>) {
         let Some(file_path) = self.session_file_path(session_name) else {
             return;
         };
-        let bookmarks: Vec<PaneBookmark> = panes
-            .iter()
-            .map(|p| PaneBookmark {
-                tab_name: p.tab_info.name.clone(),
-                pane_title: p.pane_info.title.clone(),
-            })
-            .collect();
-
-        let json = serde_json::to_string(&bookmarks).unwrap_or_else(|_| "[]".to_string());
+        let envelope = PersistedV2 {
+            version: 2,
+            bookmarks: store.bookmarks.clone(),
+        };
+        let json = serde_json::to_string(&envelope).unwrap_or_else(|_| "[]".to_string());
         let cmd = format!(
             "mkdir -p {} && printf '%s' \"$1\" > {}",
             self.data_dir_path(),
@@ -124,40 +150,6 @@ impl Persistence {
         context.insert("source".to_string(), "save".to_string());
         run_command(&["sh", "-c", &cmd, "_", &json], context);
 
-        self.last_saved_state = bookmarks
-            .iter()
-            .map(|b| (b.tab_name.clone(), b.pane_title.clone()))
-            .collect();
+        self.last_saved_state = Some(envelope);
     }
-}
-
-fn find_pane_for_bookmark(
-    bookmark: &PaneBookmark,
-    pane_manifest: &PaneManifest,
-    tab_infos: &[TabInfo],
-    current_pane_ids: &[u32],
-) -> Option<Pane> {
-    for (tab_position, panes) in &pane_manifest.panes {
-        let Some(tab) = tab_infos.iter().find(|t| t.position == *tab_position) else {
-            continue;
-        };
-        if tab.name != bookmark.tab_name {
-            continue;
-        }
-
-        let matched_pane = panes
-            .iter()
-            .find(|p| {
-                !p.is_plugin && p.title == bookmark.pane_title && !current_pane_ids.contains(&p.id)
-            })
-            .map(|pane| Pane {
-                pane_info: pane.clone(),
-                tab_info: tab.clone(),
-            });
-
-        if matched_pane.is_some() {
-            return matched_pane;
-        }
-    }
-    None
 }

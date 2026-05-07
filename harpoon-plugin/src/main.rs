@@ -1,205 +1,72 @@
+//! `harpoon-zellij` plugin shim.
+//!
+//! Thin FFI layer over `harpoon-core`. Converts `zellij_tile` types
+//! (PaneInfo, TabInfo, Key) into the host-agnostic projections in
+//! `harpoon-core` at the FFI boundary, delegates dispatch + render layout
+//! decisions to `harpoon-core`, and translates the resulting effects /
+//! descriptors back into `zellij_tile` API calls.
+//!
+//! See `openspec/changes/add-filter-and-jump-modes/design.md` for the full
+//! design rationale.
+
 pub(crate) mod persistence;
 
-use core::fmt;
-use persistence::Persistence;
-use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 
+use persistence::Persistence;
 use zellij_tile::prelude::*;
 
-/// A tracked pane, combining zellij's PaneInfo with its parent TabInfo.
-///
-/// Per the zellij API docs, `PaneInfo.id` combined with `PaneInfo.is_plugin`
-/// uniquely identifies a pane across the entire session. Since harpoon only
-/// tracks terminal panes (!is_plugin), `pane_info.id` alone is a stable,
-/// globally unique identifier.
-///
-/// Docs: https://docs.rs/zellij-tile/latest/zellij_tile/prelude/struct.PaneInfo.html
-#[derive(Clone, Serialize, Deserialize)]
-pub struct Pane {
-    pub pane_info: PaneInfo,
-    pub tab_info: TabInfo,
-}
+use harpoon_core::{
+    build_header, build_hint_line, build_row_entries, build_rows, compute_layout_budget, dispatch,
+    filtered_indices, focused_idx as core_focused_idx, reanchor_selected_to_focus,
+    resolve_restore_round, BookmarkStore, Config, DispatchContext, DispatchState, Effect,
+    HighlightKind, InputKey, MatcherImpl, ModifierSet, Pane, RenderRow, VisiblePane,
+};
 
-impl fmt::Display for Pane {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{} | {}", self.tab_info.name, self.pane_info.title)
-    }
-}
+/// Phase 0.1 verified: y=0 IS visible in zellij 0.44.1 floating plugin
+/// panes. Not the older "y=0 overlaps with frame" assumption.
+const HEADER_BASE_Y: u16 = 0;
 
-//<--------- TODO: Replace with official functions once available
-
-/// Returns the currently active tab, if any.
-///
-/// `TabInfo.active` is set by zellij on the tab the user is currently viewing.
-/// Docs: https://docs.rs/zellij-tile/latest/zellij_tile/prelude/struct.TabInfo.html
-fn get_focused_tab(tab_infos: &Vec<TabInfo>) -> Option<TabInfo> {
-    tab_infos.iter().find(|t| t.active).cloned()
-}
-
-/// Returns the focused terminal pane in the given tab, if any.
-///
-/// `PaneManifest.panes` is a HashMap keyed by tab position (0-indexed), containing
-/// all panes in that tab including tiled, floating, and suppressed panes.
-///
-/// `PaneInfo.is_focused` is documented as "focused in its layer (tiled or floating)".
-/// In layouts with stacks/splits this can flag MULTIPLE non-plugin panes as focused
-/// in the same tab — effectively one per layout-subtree-leaf, not just the single
-/// pane the user is currently typing into. To resolve that ambiguity we pick the
-/// highest pane id among the focused terminal panes, which tracks the most
-/// recently created/operated pane (zellij assigns ids monotonically).
-///
-/// When harpoon itself has focus (it's a plugin pane), no terminal pane is
-/// flagged in the floating layer and this returns None. Callers must NOT
-/// overwrite previously captured focus state with None — the most recent real
-/// terminal focus is the pane the user came from when opening harpoon.
-///
-/// Docs: https://docs.rs/zellij-tile/latest/zellij_tile/prelude/struct.PaneManifest.html
-fn get_focused_pane(tab_position: usize, pane_manifest: &PaneManifest) -> Option<PaneInfo> {
-    let panes = pane_manifest.panes.get(&tab_position)?;
-    panes
-        .iter()
-        .filter(|p| p.is_focused && !p.is_plugin)
-        .max_by_key(|p| p.id)
-        .cloned()
-}
-
-//--------->
-
-// ----------------------------------- Update ------------------------------------------------
-
-/// Filters the stored pane list, removing any panes that no longer exist and
-/// updating tab info for panes whose tab was moved/reordered.
-///
-/// `PaneInfo.id` is unique per session when combined with `is_plugin`. Since we
-/// only track terminal panes (!is_plugin), `id` alone is sufficient to identify
-/// a pane across tab position changes.
-///
-/// Docs: https://docs.rs/zellij-tile/latest/zellij_tile/prelude/struct.PaneInfo.html
-fn get_valid_panes(
-    panes: &Vec<Pane>,
-    pane_manifest: &PaneManifest,
-    tab_infos: &Vec<TabInfo>,
-) -> Vec<Pane> {
-    let mut new_panes: Vec<Pane> = Vec::default();
-    for pane in panes {
-        // Search all tabs for this pane by its session-unique ID.
-        // Tab positions can change when tabs are created, deleted, or moved,
-        // so we search the full manifest rather than relying on the stored position.
-        for (tab_position, tab_panes) in &pane_manifest.panes {
-            if let Some(pane_info) = tab_panes
-                .iter()
-                .find(|p| !p.is_plugin && p.id == pane.pane_info.id)
-            {
-                if let Some(tab_info) = tab_infos.iter().find(|t| t.position == *tab_position) {
-                    new_panes.push(Pane {
-                        pane_info: pane_info.clone(),
-                        tab_info: tab_info.clone(),
-                    });
-                    break;
-                }
-            }
-        }
-    }
-    new_panes
-}
+// ── Plugin state ───────────────────────────────────────────────────────────────
 
 #[derive(Default)]
 struct State {
-    selected: usize,
-    panes: Vec<Pane>,
-    focused_pane: Option<Pane>,
-    tab_info: Option<Vec<TabInfo>>,
-    pane_manifest: Option<PaneManifest>,
-    session_name: Option<String>,
+    /// Pure-logic state mutated by harpoon-core dispatch handlers.
+    dispatch_state: DispatchState,
+    /// Bookmark store. Owned here so dispatch can mutate via `&mut`.
+    store: BookmarkStore,
+    /// Disk I/O wrapper.
     persistence: Persistence,
-}
+    /// Plugin configuration parsed from `load`'s BTreeMap.
+    config: Config,
+    /// Static-dispatch matcher selected at load time.
+    matcher: MatcherImpl,
 
-impl State {
-    fn clamp_selected(&mut self) {
-        if self.panes.is_empty() {
-            self.selected = 0;
-        } else if self.selected >= self.panes.len() {
-            self.selected = self.panes.len() - 1;
-        }
-    }
+    /// Current pane manifest (cached from last `Event::PaneUpdate`).
+    pane_manifest: Option<PaneManifest>,
+    /// Current tab info (cached from last `Event::TabUpdate`).
+    tab_info: Option<Vec<TabInfo>>,
+    /// Session name (captured from `Event::SessionUpdate`).
+    session_name: Option<String>,
 
-    fn select_down(&mut self) {
-        if self.panes.is_empty() {
-            return;
-        }
-        self.selected = (self.selected + 1) % self.panes.len();
-    }
-
-    fn select_up(&mut self) {
-        if self.panes.is_empty() {
-            return;
-        }
-        if self.selected == 0 {
-            self.selected = self.panes.len() - 1;
-            return;
-        }
-        self.selected -= 1;
-    }
-
-    fn sort_panes(&mut self) {
-        self.panes.sort_by(|x, y| x.tab_info.position.cmp(&y.tab_info.position));
-    }
-
-    /// Reconciles the stored pane list against the latest manifest and updates
-    /// the currently focused pane. Called on every TabUpdate and PaneUpdate event.
-    fn update_panes(&mut self) -> Option<()> {
-        let pane_manifest = self.pane_manifest.clone()?;
-        let tab_info = self.tab_info.clone()?;
-
-        // Drop any panes that no longer exist and refresh tab info for moved ones
-        self.panes = get_valid_panes(&self.panes.clone(), &pane_manifest, &tab_info);
-
-        // Match pending bookmarks to live panes (restores panes after session reload)
-        let new_panes =
-            self.persistence
-                .match_pending_bookmarks(&self.panes, &pane_manifest, &tab_info);
-        if !new_panes.is_empty() {
-            self.panes.extend(new_panes);
-            self.sort_panes();
-        }
-
-        // Track which pane the user was in before harpoon opened.
-        // Only update when a real terminal pane is currently focused; when
-        // harpoon itself has focus (e.g. immediately after the user pressed
-        // the launcher keybind), get_focused_pane returns None and we keep
-        // the previously captured focus. This is what makes `a` add the pane
-        // the user actually came from instead of always adding the first pane
-        // in the tab.
-        let focused_tab = get_focused_tab(&tab_info)?;
-        if let Some(focused_pane_info) = get_focused_pane(focused_tab.position, &pane_manifest) {
-            self.focused_pane = Some(Pane {
-                pane_info: focused_pane_info,
-                tab_info: focused_tab,
-            });
-        }
-
-        // Move cursor to the focused pane if it's in the list
-        if let Some(focused) = &self.focused_pane {
-            if let Some(idx) = self.panes.iter().position(|p| p.pane_info.id == focused.pane_info.id) {
-                self.selected = idx;
-            }
-        }
-        self.clamp_selected();
-
-        if self.persistence.has_changed(&self.panes) {
-            self.persistence
-                .save_to_disk(&self.session_name, &self.panes);
-        }
-
-        Some(())
-    }
+    /// Last computed filtered_indices view (rebuilt per `update()` for
+    /// filter mode; empty otherwise). Used by render and by handlers that
+    /// need to resolve `selected → panes_idx`.
+    last_filtered_indices: Vec<usize>,
 }
 
 register_plugin!(State);
 
+// ── ZellijPlugin trait impl ────────────────────────────────────────────────────
+
 impl ZellijPlugin for State {
-    fn load(&mut self, _: BTreeMap<String, String>) {
+    fn load(&mut self, configuration: BTreeMap<String, String>) {
+        // Parse config; init matcher from it. Mode init at default_mode.
+        self.config = Config::parse_from_btree(&configuration);
+        self.dispatch_state.default_mode = self.config.default_mode;
+        self.dispatch_state.mode = self.config.default_mode;
+        self.matcher = MatcherImpl::from_config(&self.config);
+
         request_permission(&[
             PermissionType::RunCommands,
             PermissionType::ReadApplicationState,
@@ -229,8 +96,6 @@ impl ZellijPlugin for State {
                 should_render = true;
             }
             Event::PermissionRequestResult(PermissionStatus::Granted) => {
-                // Rename the pane after permissions are granted, since
-                // rename_plugin_pane requires ChangeApplicationState permission.
                 let plugin_ids = get_plugin_ids();
                 rename_plugin_pane(plugin_ids.plugin_id, "harpoon");
             }
@@ -245,188 +110,382 @@ impl ZellijPlugin for State {
             Event::RunCommandResult(_exit_code, stdout, _stderr, context) => {
                 if context.get("source").map(|s| s.as_str()) == Some("load") {
                     let content = String::from_utf8_lossy(&stdout);
-                    match self.persistence.on_load_command(&content) {
-                        Ok(_) => {
-                            self.update_panes();
-                            should_render = true;
-                        }
-                        Err(e) => {
-                            eprintln!("{e}");
-                        }
+                    if let Err(e) = self.persistence.on_load_command(&mut self.store, &content) {
+                        eprintln!("{e}");
+                    } else {
+                        // After bookmarks load, attempt a restore round in case
+                        // panes are already visible.
+                        self.update_panes();
+                        should_render = true;
                     }
                 }
             }
-            Event::Key(key) => match key.bare_key {
-                BareKey::Char('A') => {
-                    // Add all terminal panes from all tabs that aren't already tracked
-                    let current_ids: Vec<u32> = self.panes.iter().map(|p| p.pane_info.id).collect();
-                    if let Some(pane_manifest) = &self.pane_manifest {
-                        if let Some(tab_info) = &self.tab_info {
-                            for (tab_position, panes) in &pane_manifest.panes {
-                                if let Some(tab) = tab_info.iter().find(|t| t.position == *tab_position) {
-                                    for pane in panes {
-                                        if !pane.is_plugin && !current_ids.contains(&pane.id) {
-                                            self.panes.push(Pane {
-                                                pane_info: pane.clone(),
-                                                tab_info: tab.clone(),
-                                            });
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    self.sort_panes();
-                    self.persistence
-                        .save_to_disk(&self.session_name, &self.panes);
-                    should_render = true;
-                    hide_self();
-                }
-                BareKey::Char('a') => {
-                    // Add the currently focused terminal pane if not already tracked.
-                    // Since pane IDs are session-unique for terminal panes, we only
-                    // need to check the ID (not tab position).
-                    if let Some(pane) = &self.focused_pane {
-                        if !self.panes.iter().any(|p| p.pane_info.id == pane.pane_info.id) {
-                            self.panes.push(pane.clone());
-                            self.sort_panes();
-                            self.persistence
-                                .save_to_disk(&self.session_name, &self.panes);
-                        }
-                    }
-                    should_render = true;
-                    hide_self();
-                }
-                BareKey::Char('d') => {
-                    if self.selected < self.panes.len() {
-                        self.panes.remove(self.selected);
-                        self.persistence
-                            .save_to_disk(&self.session_name, &self.panes);
-                    }
-                    self.clamp_selected();
-                    should_render = true;
-                }
-                BareKey::Char('c') | BareKey::Esc => {
-                    hide_self();
-                }
-                BareKey::Down | BareKey::Char('j') => {
-                    if self.panes.len() > 0 {
-                        self.select_down();
-                        should_render = true;
-                    }
-                }
-                BareKey::Up | BareKey::Char('k') => {
-                    if self.panes.len() > 0 {
-                        self.select_up();
-                        should_render = true;
-                    }
-                }
-                BareKey::Enter | BareKey::Char('l') => {
-                    if let Some(pane) = self.panes.get(self.selected) {
-                        hide_self();
-                        // TODO: This has a bug on macOS with hidden panes
-                        focus_terminal_pane(pane.pane_info.id, true);
-                    }
-                }
-                _ => (),
-            },
+            Event::Key(key) => {
+                let input = key_event_to_input(&key);
+                let ctx = self.build_dispatch_context();
+                let effects = dispatch(
+                    &mut self.dispatch_state,
+                    &ctx,
+                    &mut self.store,
+                    input,
+                );
+                // Stash filtered_indices for render path.
+                self.last_filtered_indices = ctx.filtered_indices;
+                self.apply_effects(&effects, &mut should_render);
+            }
             _ => (),
         };
-
         should_render
     }
 
     fn render(&mut self, rows: usize, cols: usize) {
-        // Note: y=0 overlaps with the zellij pane frame/title bar and is not visible,
-        // so we start rendering from y=1.
-        let header = format!("==== {} panes ====", self.panes.len());
-        let x = cols.saturating_sub(header.len()) / 2;
-        print_text_with_coordinates(Text::new(&header), x, 0, None, None);
-        let mut y = 1;
+        let rows = rows as u16;
+        let cols_u = cols;
 
-        for (idx, pane) in self.panes.iter().enumerate() {
-            let text = if idx == self.selected {
-                Text::new(&pane.to_string()).selected()
-            } else {
-                Text::new(&pane.to_string())
-            };
-            print_text_with_coordinates(text, 0, y, None, None);
+        let budget = compute_layout_budget(rows);
+
+        // Build the row source: live panes + placeholders.
+        let entries = build_row_entries(&self.dispatch_state, &self.store);
+
+        // Build header.
+        let visible_count = entries
+            .iter()
+            .filter(|e| matches!(e, harpoon_core::RowEntry::Live(_)))
+            .count();
+        let filter_match_count = self.last_filtered_indices.len();
+        let header = build_header(
+            &self.dispatch_state,
+            visible_count,
+            filter_match_count,
+            cols_u,
+            budget.max_header_height,
+        );
+
+        // Render header lines starting at HEADER_BASE_Y.
+        let mut y = HEADER_BASE_Y;
+        for line in &header.lines {
+            let mut t = Text::new(&line.text);
+            if let Some(range) = &line.badge_range {
+                t = t.color_range(2, range.clone());
+            }
+            print_text_with_coordinates(t, 0, y as usize, None, None);
             y += 1;
         }
 
-        let hint_y = rows.saturating_sub(1);
-        let hint_line = build_hint_line(cols);
-        print_text_with_coordinates(hint_line, 0, hint_y, None, None);
+        // Build pane rows.
+        let row_descs: Vec<RenderRow> = build_rows(
+            &self.dispatch_state,
+            &entries,
+            &mut self.matcher,
+            &self.last_filtered_indices,
+            self.config.show_slots,
+            budget.max_pane_rows,
+        );
+
+        // Render rows.
+        for (i, row) in row_descs.iter().enumerate() {
+            let row_y = y as usize + i;
+            let mut t = Text::new(&row.text);
+            match row.highlight_kind {
+                HighlightKind::None => {}
+                HighlightKind::FuzzyChars => {
+                    t = t.color_indices(1, row.highlight_indices.clone());
+                }
+                HighlightKind::SubstringRange { start, end } => {
+                    t = t.color_range(1, start..end);
+                }
+            }
+            if row.is_selected {
+                t = t.selected();
+            }
+            print_text_with_coordinates(t, 0, row_y, None, None);
+        }
+
+        // Render hint line at bottom (if budget allows).
+        if budget.hint_visible {
+            let hint = build_hint_line(self.dispatch_state.mode, cols_u);
+            let hint_y = (rows as usize).saturating_sub(1);
+            print_text_with_coordinates(Text::new(&hint), 0, hint_y, None, None);
+        }
     }
 }
 
-fn build_hint_line(cols: usize) -> Text {
-    let (line, key_ranges) = if cols > 75 {
-        build_wide_hints()
-    } else if cols > 50 {
-        build_medium_hints()
-    } else {
-        build_narrow_hints()
+// ── State helpers ──────────────────────────────────────────────────────────────
+
+impl State {
+    /// Build the per-event `DispatchContext` from cached pane_manifest +
+    /// tab_info. Sorts visible_panes by (tab.position ASC, PaneInfo.id ASC)
+    /// for deterministic `A` add-all order. Computes filtered_indices using
+    /// the active matcher.
+    fn build_dispatch_context(&mut self) -> DispatchContext {
+        let visible_panes = self.collect_visible_panes_sorted();
+        let focused_pane = self.collect_focused_pane();
+
+        // Update focused_pane_id on dispatch_state so reanchor helpers see it.
+        // Sticky semantics: only overwrite when there IS a real terminal
+        // focus (per the existing fork's behavior, avoid clobbering when
+        // harpoon itself is focused).
+        if let Some(p) = &focused_pane {
+            self.dispatch_state.focused_pane_id = Some(p.id);
+        }
+
+        let f_indices = filtered_indices(&self.dispatch_state, &mut self.matcher);
+
+        DispatchContext {
+            focused_pane,
+            visible_panes,
+            filtered_indices: f_indices,
+        }
+    }
+
+    /// Collect all visible non-plugin panes from the manifest, sorted by
+    /// (tab.position ASC, PaneInfo.id ASC).
+    fn collect_visible_panes_sorted(&self) -> Vec<Pane> {
+        let mut out: Vec<Pane> = Vec::new();
+        let Some(manifest) = self.pane_manifest.as_ref() else {
+            return out;
+        };
+        let Some(tabs) = self.tab_info.as_ref() else {
+            return out;
+        };
+        for tab in tabs {
+            let tab_pos_usize = tab.position;
+            let Some(pane_infos) = manifest.panes.get(&tab_pos_usize) else {
+                continue;
+            };
+            let mut by_id: Vec<&PaneInfo> = pane_infos.iter().filter(|p| !p.is_plugin).collect();
+            by_id.sort_by_key(|p| p.id);
+            for pi in by_id {
+                out.push(pane_info_to_pane(pi, &tab.name, tab.position as u32));
+            }
+        }
+        // Sort overall by (tab_position ASC, id ASC) — the per-tab loop
+        // above iterates tabs in their natural order; deterministic ordering
+        // is a secondary sort here.
+        out.sort_by(|a, b| {
+            a.tab_position
+                .cmp(&b.tab_position)
+                .then_with(|| a.id.cmp(&b.id))
+        });
+        out
+    }
+
+    /// Find the user's currently-focused terminal pane (the one they came
+    /// from when opening harpoon).
+    fn collect_focused_pane(&self) -> Option<Pane> {
+        let manifest = self.pane_manifest.as_ref()?;
+        let tabs = self.tab_info.as_ref()?;
+        let active_tab = tabs.iter().find(|t| t.active)?;
+        let pane_infos = manifest.panes.get(&active_tab.position)?;
+        // Match the existing fork's tie-break: highest pane id among focused
+        // non-plugin panes.
+        let focused = pane_infos
+            .iter()
+            .filter(|p| p.is_focused && !p.is_plugin)
+            .max_by_key(|p| p.id)?;
+        Some(pane_info_to_pane(
+            focused,
+            &active_tab.name,
+            active_tab.position as u32,
+        ))
+    }
+
+    /// Reconcile state.panes with the latest manifest: drop disappeared
+    /// panes, run restore resolution, re-anchor selected.
+    fn update_panes(&mut self) {
+        let Some(manifest) = self.pane_manifest.clone() else {
+            return;
+        };
+        let Some(_tabs) = self.tab_info.clone() else {
+            return;
+        };
+
+        // Build set of currently-valid pane ids.
+        let mut valid_ids: std::collections::HashSet<u32> = std::collections::HashSet::new();
+        for (_, pane_infos) in &manifest.panes {
+            for pi in pane_infos {
+                if !pi.is_plugin {
+                    valid_ids.insert(pi.id);
+                }
+            }
+        }
+
+        // Drop panes whose id is no longer valid. Pre-freeze (sparse) keeps
+        // None placeholders untouched; post-freeze (dense) compacts the
+        // disappearance.
+        if !self.store.frozen {
+            // Pre-freeze: turn invalid Some entries back into None.
+            for opt in self.dispatch_state.panes.iter_mut() {
+                if let Some(p) = opt.as_ref() {
+                    if !valid_ids.contains(&p.id) {
+                        // Remove map entry; bookmark stays in store.bookmarks.
+                        self.store.pane_id_to_bookmark_idx.remove(&p.id);
+                        *opt = None;
+                    }
+                }
+            }
+        } else {
+            // Post-freeze: drop invalid entries entirely.
+            let mut new_panes: Vec<Option<Pane>> = Vec::new();
+            let mut removed_ids: Vec<u32> = Vec::new();
+            for opt in self.dispatch_state.panes.drain(..) {
+                if let Some(p) = opt {
+                    if valid_ids.contains(&p.id) {
+                        new_panes.push(Some(p));
+                    } else {
+                        removed_ids.push(p.id);
+                    }
+                }
+                // We intentionally drop trailing Nones too post-freeze.
+            }
+            self.dispatch_state.panes = new_panes;
+            // Remove map entries + bookmarks for removed panes; reindex.
+            for id in removed_ids {
+                if let Some(bk_idx) = self.store.pane_id_to_bookmark_idx.remove(&id) {
+                    if bk_idx < self.store.bookmarks.len() {
+                        self.store.bookmarks.remove(bk_idx);
+                        // Shift map values > bk_idx down by 1.
+                        for v in self.store.pane_id_to_bookmark_idx.values_mut() {
+                            if *v > bk_idx {
+                                *v -= 1;
+                            }
+                        }
+                    }
+                }
+            }
+            // Reassign bookmark indices to new dense positions.
+            let mut id_to_new_idx: BTreeMap<u32, u16> = BTreeMap::new();
+            for (i, opt) in self.dispatch_state.panes.iter().enumerate() {
+                if let Some(p) = opt {
+                    id_to_new_idx.insert(p.id, i as u16);
+                }
+            }
+            for (pane_id, &bk_idx) in &self.store.pane_id_to_bookmark_idx {
+                if let Some(new_idx) = id_to_new_idx.get(pane_id) {
+                    if let Some(b) = self.store.bookmarks.get_mut(bk_idx) {
+                        b.index = Some(*new_idx);
+                    }
+                }
+            }
+        }
+
+        // Run restore resolution against currently visible panes.
+        let visible: Vec<VisiblePane> = self
+            .collect_visible_panes_sorted()
+            .into_iter()
+            .map(|p| VisiblePane {
+                id: p.id,
+                tab_name: p.tab_name,
+                pane_title: p.pane_title,
+                tab_position: p.tab_position,
+            })
+            .collect();
+        resolve_restore_round(&mut self.store, &mut self.dispatch_state.panes, &visible);
+
+        // Update focused_pane_id (sticky).
+        if let Some(p) = self.collect_focused_pane() {
+            self.dispatch_state.focused_pane_id = Some(p.id);
+        }
+
+        // Re-anchor selected to focused pane (gated to Command || Filter+empty).
+        let f_idx = core_focused_idx(
+            &self.dispatch_state.panes,
+            self.dispatch_state.focused_pane_id,
+        );
+        reanchor_selected_to_focus(&mut self.dispatch_state, f_idx);
+
+        // Save if changed.
+        self.persistence
+            .save_if_changed(&self.store, &self.session_name);
+    }
+
+    /// Apply a `Vec<Effect>` from the dispatch core. `Effect::Close` triggers
+    /// `hide_self()` + close-helper reset; `Effect::FocusPane(id)` triggers
+    /// `focus_terminal_pane`; `Effect::Save` saves persistence; `Effect::Render`
+    /// flips `should_render = true`; `Effect::Noop` is ignored.
+    ///
+    /// Order is significant for `Close ↔ FocusPane`: handlers MUST emit them
+    /// as `[Close, FocusPane]` so `hide_self()` runs before
+    /// `focus_terminal_pane()`.
+    fn apply_effects(&mut self, effects: &[Effect], should_render: &mut bool) {
+        for effect in effects {
+            match effect {
+                Effect::Render => {
+                    *should_render = true;
+                }
+                Effect::Close => {
+                    self.close_helper();
+                    *should_render = true;
+                }
+                Effect::FocusPane(id) => {
+                    // TODO: This has a bug on macOS with hidden panes.
+                    focus_terminal_pane(*id, true);
+                }
+                Effect::Save => {
+                    self.persistence
+                        .save_if_changed(&self.store, &self.session_name);
+                }
+                Effect::Noop => {}
+            }
+        }
+    }
+
+    /// Single canonical close path: `hide_self()`, reset mode to default,
+    /// clear query, re-anchor selected so the next open lands on a valid
+    /// index.
+    fn close_helper(&mut self) {
+        hide_self();
+        self.dispatch_state.mode = self.dispatch_state.default_mode;
+        self.dispatch_state.query.clear();
+        let f_idx = core_focused_idx(
+            &self.dispatch_state.panes,
+            self.dispatch_state.focused_pane_id,
+        );
+        reanchor_selected_to_focus(&mut self.dispatch_state, f_idx);
+    }
+}
+
+// ── FFI conversion helpers ──────────────────────────────────────────────────────
+
+/// Convert a `zellij_tile::PaneInfo` + tab metadata into the host-agnostic
+/// `harpoon_core::Pane` projection.
+fn pane_info_to_pane(info: &PaneInfo, tab_name: &str, tab_position: u32) -> Pane {
+    Pane {
+        id: info.id,
+        tab_name: tab_name.to_owned(),
+        pane_title: info.title.clone(),
+        tab_position,
+    }
+}
+
+/// Convert a `zellij_tile::Key` into `InputKey` with FFI normalization.
+///
+/// **Normalization** (per Phase 0.3 verification + `design.md` "Decision:
+/// Modifier-gated key consumption with FFI normalization"): the host emits
+/// shifted ASCII letters as BOTH uppercase char AND `KeyModifier::Shift` set.
+/// Drop the Shift bit on those so handlers see the canonical
+/// `InputKey::Char('K', ModifierSet::PLAIN)` form.
+fn key_event_to_input(key: &KeyWithModifier) -> InputKey {
+    let mut modifiers = ModifierSet {
+        ctrl: key.has_modifiers(&[KeyModifier::Ctrl]),
+        alt: key.has_modifiers(&[KeyModifier::Alt]),
+        shift: key.has_modifiers(&[KeyModifier::Shift]),
+        super_: key.has_modifiers(&[KeyModifier::Super]),
     };
 
-    let mut text = Text::new(&line);
-    for range in key_ranges {
-        text = text.color_range(3, range);
-    }
-    text
-}
-
-fn build_wide_hints() -> (String, Vec<std::ops::Range<usize>>) {
-    let parts = [
-        ("<a>", " add pane"),
-        ("<A>", " add all"),
-        ("<d>", " delete"),
-        ("<j/k>", " navigate"),
-        ("<Enter>", " focus"),
-        ("<Esc>", " close"),
-    ];
-    build_hint_string(&parts, ", ")
-}
-
-fn build_medium_hints() -> (String, Vec<std::ops::Range<usize>>) {
-    let parts = [
-        ("<a>", " add"),
-        ("<A>", " all"),
-        ("<d>", " del"),
-        ("<j/k>", " nav"),
-        ("<Enter>", " go"),
-        ("<Esc>", " quit"),
-    ];
-    build_hint_string(&parts, ", ")
-}
-
-fn build_narrow_hints() -> (String, Vec<std::ops::Range<usize>>) {
-    let parts = [
-        ("<a>", " add"),
-        ("<d>", " del"),
-        ("<Enter>", " go"),
-        ("<Esc>", ""),
-    ];
-    build_hint_string(&parts, " ")
-}
-
-fn build_hint_string(
-    parts: &[(&str, &str)],
-    separator: &str,
-) -> (String, Vec<std::ops::Range<usize>>) {
-    let mut result = String::new();
-    let mut key_ranges = Vec::new();
-
-    for (i, (key, desc)) in parts.iter().enumerate() {
-        if i > 0 {
-            result.push_str(separator);
+    match &key.bare_key {
+        BareKey::Char(c) => {
+            // FFI normalization: drop Shift on ASCII alphabetic uppercase.
+            if c.is_ascii_uppercase() && modifiers.shift {
+                modifiers.shift = false;
+            }
+            InputKey::Char(*c, modifiers)
         }
-        let start = result.len();
-        result.push_str(key);
-        let end = result.len();
-        key_ranges.push(start..end);
-        result.push_str(desc);
+        BareKey::Backspace => InputKey::Backspace,
+        BareKey::Esc => InputKey::Esc,
+        BareKey::Enter => InputKey::Enter,
+        BareKey::Up => InputKey::ArrowUp,
+        BareKey::Down => InputKey::ArrowDown,
+        _ => InputKey::Other,
     }
-
-    (result, key_ranges)
 }
