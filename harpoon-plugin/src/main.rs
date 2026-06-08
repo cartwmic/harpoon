@@ -420,6 +420,13 @@ impl State {
                 Effect::FocusPane(id) => {
                     // TODO: This has a bug on macOS with hidden panes.
                     focus_terminal_pane(*id, true);
+                    // Full-screen the pane the user jumped to. Target by id
+                    // rather than relying on focus having landed, so there is
+                    // no race with the focus_terminal_pane call above. This is
+                    // a toggle in zellij's API, but a freshly jumped-to pane is
+                    // never already fullscreen, so it always results in
+                    // fullscreen here.
+                    toggle_pane_id_fullscreen(PaneId::Terminal(*id));
                 }
                 Effect::Save => {
                     self.persistence
