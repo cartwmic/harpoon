@@ -12,7 +12,7 @@
 /// **Ordering rule**: Effects are applied in the order they appear in the
 /// returned `Vec<Effect>`. Order is **observably significant only for the
 /// `Close ↔ FocusPane` pair**: handlers that focus-and-close MUST emit
-/// `[Effect::Close, Effect::FocusPane(id)]` so `hide_self()` runs before
+/// `[Effect::Close, Effect::FocusPane(id)]` so `close_self()` runs before
 /// `focus_terminal_pane(id, true)`. All other effects are commutative.
 ///
 /// Convention for handler returns: `[Save?, Render?, Close?, FocusPane?, ...]`
@@ -22,13 +22,16 @@ pub enum Effect {
     /// Mark the plugin for re-render. The shim sets `should_render = true`
     /// after the handler returns (idempotent across multiple `Render` effects).
     Render,
-    /// Hide the plugin. Shim calls `hide_self()` and runs the close-helper
+    /// Close the plugin. Shim calls `close_self()` and runs the close-helper
     /// (resets mode to `default_mode`, clears query, re-anchors `selected`).
+    /// `close_self()` fully destroys the plugin pane so the next launch is a
+    /// fresh instance — avoids a zellij quirk where re-focusing a hidden
+    /// floating plugin pane mis-focuses a terminal pane instead.
     Close,
     /// Focus the terminal pane with this id. Shim calls
     /// `focus_terminal_pane(id, true)`. MUST appear after any `Effect::Close`
-    /// in the same Vec to preserve today's `hide_self → focus_terminal_pane`
-    /// ordering (matches the carried-forward macOS focus bug semantics).
+    /// in the same Vec to preserve the `close_self → focus_terminal_pane`
+    /// ordering (so the explicit focus is the last focus-affecting action).
     FocusPane(u32),
     /// Persist `bookmarks` to disk via `save_if_changed()`. Shim no-ops if the
     /// canonical shape hasn't changed.

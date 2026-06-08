@@ -417,13 +417,17 @@ impl State {
     }
 
     /// Apply a `Vec<Effect>` from the dispatch core. `Effect::Close` triggers
-    /// `hide_self()` + close-helper reset; `Effect::FocusPane(id)` triggers
+    /// `close_self()` + close-helper reset; `Effect::FocusPane(id)` triggers
     /// `focus_terminal_pane`; `Effect::Save` saves persistence; `Effect::Render`
     /// flips `should_render = true`; `Effect::Noop` is ignored.
     ///
     /// Order is significant for `Close ↔ FocusPane`: handlers MUST emit them
-    /// as `[Close, FocusPane]` so `hide_self()` runs before
-    /// `focus_terminal_pane()`.
+    /// as `[Close, FocusPane]` so `close_self()` runs before
+    /// `focus_terminal_pane()` — the plugin pane is closed first, then the
+    /// explicit focus on the target terminal pane is the last focus-affecting
+    /// action (both `focus_terminal_pane` and `toggle_pane_id_fullscreen`
+    /// target terminal panes by id, so they still execute after the plugin
+    /// pane is gone).
     fn apply_effects(&mut self, effects: &[Effect], should_render: &mut bool) {
         for effect in effects {
             match effect {
@@ -457,11 +461,19 @@ impl State {
         }
     }
 
-    /// Single canonical close path: `hide_self()`, reset mode to default,
+    /// Single canonical close path: `close_self()`, reset mode to default,
     /// clear query, re-anchor selected so the next open lands on a valid
     /// index.
+    ///
+    /// `close_self()` (vs `hide_self()`) fully destroys the plugin pane so the
+    /// next `LaunchOrFocusPlugin` keybind launches a FRESH instance. This
+    /// works around a zellij focus quirk where re-focusing a *hidden* floating
+    /// plugin pane (esp. on macOS, and more often when a terminal pane is
+    /// fullscreen) lands focus on a terminal pane instead of re-showing the
+    /// plugin. A fresh launch has no stale hidden float to mis-focus. Bookmark
+    /// state survives because it is persisted to disk and reloaded in `load()`.
     fn close_helper(&mut self) {
-        hide_self();
+        close_self();
         self.dispatch_state.mode = self.dispatch_state.default_mode;
         self.dispatch_state.query.clear();
         let f_idx = core_focused_idx(
