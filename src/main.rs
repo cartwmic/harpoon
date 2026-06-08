@@ -326,6 +326,13 @@ impl ZellijPlugin for State {
                         hide_self();
                         // TODO: This has a bug on macOS with hidden panes
                         focus_terminal_pane(pane.pane_info.id, true);
+                        // Full-screen the selected pane on jump. Target the pane
+                        // by id rather than relying on focus having landed, so
+                        // there is no race with the focus_terminal_pane call
+                        // above. This is a toggle in zellij's API, but a freshly
+                        // jumped-to pane is never already fullscreen, so it always
+                        // results in fullscreen here.
+                        toggle_pane_id_fullscreen(PaneId::Terminal(pane.pane_info.id));
                     }
                 }
                 _ => (),
