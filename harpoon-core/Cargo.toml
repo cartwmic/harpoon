@@ -1,0 +1,16 @@
+[package]
+name = "harpoon-core"
+version = "0.1.0"
+edition = "2021"
+authors = ["cartwmic", "Ignacio Aleman <onsen@duck.com>"]
+description = "Pure-logic core for the harpoon-zellij plugin: modes, dispatch, matcher, slot mapping. No zellij-tile dep; native+wasm testable."
+
+[lib]
+crate-type = ["lib"]
+
+[dependencies]
+serde = { workspace = true }
+nucleo-matcher = { workspace = true }
+
+[dev-dependencies]
+serde_json = { workspace = true }
