@@ -12,7 +12,7 @@
 
 use crate::bookmark::BookmarkStore;
 use crate::dispatch::DispatchState;
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 
 /// Compact `state.panes` to a dense Vec, rewrite unresolved bookmark indices
 /// to `None`, rebuild `store.pane_id_to_bookmark_idx`, and re-anchor
@@ -27,11 +27,12 @@ use std::collections::{HashMap, HashSet};
 ///    (Two-phase to satisfy the borrow checker — see note below.)
 /// 3. Compact panes: `state.panes.retain(|opt| opt.is_some())`.
 /// 4. Rebuild `pane_id_to_bookmark_idx` and update each bookmark's `index` to
-///    the new dense position. A `HashMap<(tab_name, pane_title), Vec<usize>>`
-///    lookup table avoids O(N²) scan when duplicate-titled panes exist; a
-///    `HashSet<usize>` tracks which bookmark indices have been claimed this
-///    pass so duplicates distribute one-per-pane rather than all pointing at
-///    the first matching bookmark.
+///    the new dense position. The rebuild reuses the EXISTING pane.id →
+///    bk_idx associations (snapshotted before the clear), NOT a re-derivation
+///    from `(tab_name, pane_title)`: titles are volatile (pi rewrites them),
+///    so a title-based rebuild would drop the link for any pane whose live
+///    title has drifted from its bookmark's stored title. The id↔bookmark
+///    association is the authoritative, title-independent identity.
 /// 5. Re-anchor `state.selected`: if `prev_selected_pane_id == Some(pid)`,
 ///    find `pid` in the post-compaction Vec; else fall back to `0`.
 /// 6. Set `store.frozen = true`.
@@ -76,35 +77,22 @@ pub fn freeze_on_user_mutation(state: &mut DispatchState, store: &mut BookmarkSt
     state.panes.retain(|opt| opt.is_some());
 
     // ── Step 4: rebuild pane_id_to_bookmark_idx + update bookmark indices ─────
+    //
+    // Reuse the EXISTING pane.id → bk_idx associations (captured before the
+    // clear) rather than re-deriving them from `(tab_name, pane_title)`.
+    // Titles are volatile (pi rewrites them), so a title-based re-derivation
+    // would silently drop the link for any pane whose live title has drifted
+    // away from its bookmark's stored title. The id↔bookmark association is
+    // the authoritative identity and is title-independent.
+    let old_id_to_bk: HashMap<u32, usize> = store.pane_id_to_bookmark_idx.clone();
     store.pane_id_to_bookmark_idx.clear();
-
-    // Build a title→bookmark-indices lookup once to avoid O(N²) with
-    // duplicate-titled panes.  Vec<usize> preserves bookmark insertion order
-    // so the "first unclaimed" logic is stable.
-    let mut title_to_bk_indices: HashMap<(String, String), Vec<usize>> = HashMap::new();
-    for (bk_idx, b) in store.bookmarks.iter().enumerate() {
-        title_to_bk_indices
-            .entry((b.tab_name.clone(), b.pane_title.clone()))
-            .or_default()
-            .push(bk_idx);
-    }
-
-    // Track which bookmark indices have been claimed this pass so that
-    // duplicate-titled panes each get their own distinct bookmark slot.
-    let mut claimed: HashSet<usize> = HashSet::new();
 
     for (new_idx, opt) in state.panes.iter().enumerate() {
         // Post-compaction every entry is Some; unwrap is safe.
         let pane = opt.as_ref().unwrap();
-        let key = (pane.tab_name.clone(), pane.pane_title.clone());
-
-        if let Some(candidates) = title_to_bk_indices.get(&key) {
-            // First bookmark index for this title not yet claimed in this pass.
-            if let Some(&bk_idx) = candidates.iter().find(|&&i| !claimed.contains(&i)) {
-                store.bookmarks[bk_idx].index = Some(new_idx as u16);
-                store.pane_id_to_bookmark_idx.insert(pane.id, bk_idx);
-                claimed.insert(bk_idx);
-            }
+        if let Some(&bk_idx) = old_id_to_bk.get(&pane.id) {
+            store.bookmarks[bk_idx].index = Some(new_idx as u16);
+            store.pane_id_to_bookmark_idx.insert(pane.id, bk_idx);
         }
     }
 
@@ -146,6 +134,7 @@ mod tests {
             tab_name: tab.to_owned(),
             pane_title: title.to_owned(),
             index,
+            id: None,
         }
     }
 
@@ -342,5 +331,32 @@ mod tests {
         assert!(!store.frozen);
         freeze_on_user_mutation(&mut state, &mut store);
         assert!(store.frozen);
+    }
+
+    /// Map rebuild is id-based, not title-based: a live pane whose title has
+    /// drifted away from its bookmark's stored title still keeps its
+    /// pane↔bookmark link after freeze (the old title-based rebuild would have
+    /// silently dropped it).
+    #[test]
+    fn freeze_rebuilds_map_by_id_despite_title_drift() {
+        let live = p(10, "work", "NEW TITLE");
+        let mut state = DispatchState {
+            panes: vec![Some(live)],
+            selected: 0,
+            ..Default::default()
+        };
+        let mut store = BookmarkStore {
+            // Bookmark's stored title differs from the live pane's title.
+            bookmarks: vec![bm("work", "OLD TITLE", Some(0))],
+            pane_id_to_bookmark_idx: [(10, 0)].into_iter().collect(),
+            frozen: false,
+        };
+
+        freeze_on_user_mutation(&mut state, &mut store);
+
+        // Link preserved by id; bookmark not nulled out.
+        assert_eq!(store.pane_id_to_bookmark_idx.get(&10), Some(&0));
+        assert_eq!(store.bookmarks[0].index, Some(0));
+        assert_eq!(state.panes.len(), 1);
     }
 }

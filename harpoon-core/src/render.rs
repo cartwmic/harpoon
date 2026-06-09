@@ -505,16 +505,19 @@ mod tests {
                 tab_name: "work".to_owned(),
                 pane_title: "nvim".to_owned(),
                 index: Some(0),
+                id: None,
             },
             PaneBookmark {
                 tab_name: "shell".to_owned(),
                 pane_title: "edit".to_owned(),
                 index: Some(1),
+                id: None,
             },
             PaneBookmark {
                 tab_name: "build".to_owned(),
                 pane_title: "cargo".to_owned(),
                 index: Some(2),
+                id: None,
             },
         ];
         store.pane_id_to_bookmark_idx.insert(1, 0);
@@ -634,11 +637,13 @@ mod tests {
                 tab_name: "a".to_owned(),
                 pane_title: "x".to_owned(),
                 index: Some(0),
+                id: None,
             },
             PaneBookmark {
                 tab_name: "b".to_owned(),
                 pane_title: "y".to_owned(),
                 index: Some(1),
+                id: None,
             },
         ];
         store.pane_id_to_bookmark_idx.insert(1, 0);

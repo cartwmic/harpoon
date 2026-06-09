@@ -178,6 +178,7 @@ fn push_pane(state: &mut DispatchState, store: &mut BookmarkStore, pane: Pane) {
         tab_name: pane.tab_name.clone(),
         pane_title: pane.pane_title.clone(),
         index: Some(new_idx as u16),
+        id: Some(pane.id),
     });
     store.pane_id_to_bookmark_idx.insert(pane.id, bk_idx);
     state.panes.push(Some(pane));
@@ -363,6 +364,7 @@ mod tests {
             tab_name: tab.to_owned(),
             pane_title: title.to_owned(),
             index,
+            id: None,
         }
     }
 
@@ -409,6 +411,7 @@ mod tests {
                     tab_name: pane.tab_name.clone(),
                     pane_title: pane.pane_title.clone(),
                     index: Some(i as u16),
+                    id: None,
                 });
                 store.pane_id_to_bookmark_idx.insert(pane.id, bk_idx);
             }

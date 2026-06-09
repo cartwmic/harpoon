@@ -34,6 +34,21 @@ pub struct PaneBookmark {
     /// before v2 and has never been explicitly placed).
     #[serde(default)]
     pub index: Option<u16>,
+    /// Last-known zellij pane id for this bookmark. `Some(id)` once the
+    /// bookmark has been added to / resolved against a live pane this
+    /// session; `None` for bookmarks loaded from an older on-disk file that
+    /// predates the id field, until they resolve once.
+    ///
+    /// **Why this exists**: pane *titles* are volatile — tools like pi rewrite
+    /// the pane title to the current task summary, so `(tab_name, pane_title)`
+    /// drifts and stops matching the live pane. The pane `id` is stable for
+    /// the life of a session, so resolution matches on `id` first and only
+    /// falls back to `(tab_name, pane_title)` for cross-session restore (where
+    /// ids are no longer valid). NOT a globally-unique id across sessions —
+    /// zellij reassigns ids on a fresh/resurrected session, hence the title
+    /// fallback.
+    #[serde(default)]
+    pub id: Option<u32>,
 }
 
 /// In-memory bookmark state for a single harpoon session.
@@ -93,6 +108,7 @@ mod tests {
             tab_name: "a".to_owned(),
             pane_title: "b".to_owned(),
             index: Some(3),
+            id: Some(7),
         };
         let json = serde_json::to_string(&bm).expect("serialize");
         let got: PaneBookmark = serde_json::from_str(&json).expect("deserialize");
@@ -101,7 +117,8 @@ mod tests {
 
     #[test]
     fn pane_bookmark_v1_backward_compat() {
-        // v1 files have no `index` field; must deserialize with index: None.
+        // v1 files have no `index` or `id` field; must deserialize with both
+        // as None.
         let json = r#"{"tab_name":"a","pane_title":"b"}"#;
         let got: PaneBookmark = serde_json::from_str(json).expect("deserialize v1");
         assert_eq!(
@@ -110,8 +127,18 @@ mod tests {
                 tab_name: "a".to_owned(),
                 pane_title: "b".to_owned(),
                 index: None,
+                id: None,
             }
         );
+    }
+
+    #[test]
+    fn pane_bookmark_without_id_field_defaults_none() {
+        // A v2 file written before the `id` field existed: has index but no id.
+        let json = r#"{"tab_name":"a","pane_title":"b","index":2}"#;
+        let got: PaneBookmark = serde_json::from_str(json).expect("deserialize");
+        assert_eq!(got.index, Some(2));
+        assert_eq!(got.id, None);
     }
 
     // ── BookmarkStore::default ────────────────────────────────────────────────
@@ -133,6 +160,7 @@ mod tests {
             tab_name: "work".to_owned(),
             pane_title: "nvim".to_owned(),
             index: Some(0),
+            id: None,
         });
         store.pane_id_to_bookmark_idx.insert(42, 0);
         assert!(store.is_resolved(0));
@@ -145,6 +173,7 @@ mod tests {
             tab_name: "work".to_owned(),
             pane_title: "nvim".to_owned(),
             index: Some(0),
+            id: None,
         });
         // No entry in pane_id_to_bookmark_idx — bookmark is unresolved.
         assert!(!store.is_resolved(0));
@@ -157,11 +186,13 @@ mod tests {
             tab_name: "a".to_owned(),
             pane_title: "b".to_owned(),
             index: Some(0),
+            id: None,
         });
         store.bookmarks.push(PaneBookmark {
             tab_name: "c".to_owned(),
             pane_title: "d".to_owned(),
             index: Some(1),
+            id: None,
         });
         // Only idx 0 is resolved; idx 1 has no map value pointing at it.
         store.pane_id_to_bookmark_idx.insert(1, 0);
