@@ -270,21 +270,53 @@ impl State {
         out
     }
 
-    /// Whether the terminal pane with `id` is currently fullscreen, per the
-    /// last cached manifest. Returns `false` if the pane (or manifest) is not
-    /// found. Used to make the jump's fullscreen idempotent: zellij only
-    /// exposes a *toggle*, so we read the pre-jump state and skip the toggle
-    /// when the target is already fullscreen, guaranteeing the pane ends
-    /// fullscreen rather than flipping back to normal on a re-jump.
-    fn pane_is_fullscreen(&self, id: u32) -> bool {
-        let Some(manifest) = self.pane_manifest.as_ref() else {
-            return false;
-        };
+    /// The tab position (manifest key) whose pane list contains the non-plugin
+    /// terminal pane `id`, or `None` if not found in the cached manifest.
+    /// Hidden-by-fullscreen panes are still present in the manifest, so this
+    /// resolves even for the suppressed sibling of a fullscreen pane.
+    fn tab_pos_of_pane(&self, id: u32) -> Option<usize> {
+        let manifest = self.pane_manifest.as_ref()?;
         manifest
             .panes
-            .values()
-            .flatten()
-            .any(|p| !p.is_plugin && p.id == id && p.is_fullscreen)
+            .iter()
+            .find(|(_, panes)| panes.iter().any(|p| !p.is_plugin && p.id == id))
+            .map(|(pos, _)| *pos)
+    }
+
+    /// Whether the *tab* containing terminal pane `id` is currently in
+    /// fullscreen mode. Uses the authoritative `TabInfo.is_fullscreen_active`
+    /// (documented as "whether there's one pane taking up the whole display
+    /// area on this tab") rather than `PaneInfo.is_fullscreen`.
+    ///
+    /// `PaneInfo.is_fullscreen` is unreliable for this decision: empirically,
+    /// in a stacked fullscreen layout multiple panes report `is_fullscreen =
+    /// true` while the actually-hidden sibling reports `false`, and the flag
+    /// does not map cleanly to "is the tab in fullscreen mode". The tab-level
+    /// flag is the ground truth.
+    fn tab_is_fullscreen(&self, id: u32) -> bool {
+        let Some(pos) = self.tab_pos_of_pane(id) else {
+            return false;
+        };
+        self.tab_info
+            .as_ref()
+            .map(|tabs| {
+                tabs.iter()
+                    .any(|t| t.position == pos && t.is_fullscreen_active)
+            })
+            .unwrap_or(false)
+    }
+
+    /// Whether terminal pane `id` lives in the currently-active (focused) tab.
+    /// Used to decide whether `toggle_focus_fullscreen()` (which acts on the
+    /// active tab's focused pane) is safe to use as a normalization step.
+    fn pane_in_active_tab(&self, id: u32) -> bool {
+        let Some(pos) = self.tab_pos_of_pane(id) else {
+            return false;
+        };
+        self.tab_info
+            .as_ref()
+            .map(|tabs| tabs.iter().any(|t| t.position == pos && t.active))
+            .unwrap_or(false)
     }
 
     /// Find the user's currently-focused terminal pane (the one they came
@@ -418,16 +450,73 @@ impl State {
 
     /// Apply a `Vec<Effect>` from the dispatch core. `Effect::Close` triggers
     /// `close_self()` + close-helper reset; `Effect::FocusPane(id)` triggers
-    /// `focus_terminal_pane`; `Effect::Save` saves persistence; `Effect::Render`
-    /// flips `should_render = true`; `Effect::Noop` is ignored.
+    /// [`State::jump_focus_fullscreen`]; `Effect::Save` saves persistence;
+    /// `Effect::Render` flips `should_render = true`; `Effect::Noop` is ignored.
     ///
     /// Order is significant for `Close ↔ FocusPane`: handlers MUST emit them
     /// as `[Close, FocusPane]` so `close_self()` runs before
-    /// `focus_terminal_pane()` — the plugin pane is closed first, then the
-    /// explicit focus on the target terminal pane is the last focus-affecting
-    /// action (both `focus_terminal_pane` and `toggle_pane_id_fullscreen`
-    /// target terminal panes by id, so they still execute after the plugin
-    /// pane is gone).
+    /// `jump_focus_fullscreen()` — the plugin pane is closed first, then the
+    /// focus/fullscreen actions on the target terminal pane are the last
+    /// focus-affecting actions (they target terminal panes by id, so they
+    /// still execute after the plugin pane is gone).
+    /// Focus the target terminal pane and deterministically leave it
+    /// fullscreen — the always-on "jump fullscreens the target" behavior.
+    ///
+    /// zellij only exposes a *toggle* (no SetFullscreen), and we cannot read
+    /// post-focus state synchronously (the plugin is closed on jump). Worse,
+    /// the side-effect of focusing a *hidden* pane on the tab's fullscreen
+    /// state is not consistent: in a plain fullscreen it keeps fullscreen and
+    /// swaps the shown pane, but in a stacked fullscreen it *drops* fullscreen.
+    /// A predict-then-toggle scheme therefore cannot be correct in both cases.
+    ///
+    /// Instead we normalize to a known state: if the target's tab is currently
+    /// fullscreen, exit fullscreen first (deterministically tiling the tab),
+    /// then focus the target, then enter fullscreen on the target by id. Every
+    /// step starts from a known state, so the end state is always "target
+    /// focused + fullscreen" regardless of layout (plain or stacked).
+    ///
+    /// `toggle_focus_fullscreen()` acts on the active tab's focused pane, so we
+    /// only use it to pre-exit when the target lives in the active tab. For the
+    /// rare cross-tab jump into an already-fullscreen tab we fall back to a
+    /// best-effort focus + toggle, skipping the toggle only when the target is
+    /// itself the flagged-fullscreen pane (keeps a cross-tab re-jump idempotent).
+    fn jump_focus_fullscreen(&self, id: u32) {
+        let tab_fs = self.tab_is_fullscreen(id);
+        let in_active = self.pane_in_active_tab(id);
+        let exit_first = tab_fs && in_active;
+
+        if exit_first {
+            // Active tab is fullscreen and target is in it: exit fullscreen so
+            // the subsequent focus happens from a tiled state.
+            toggle_focus_fullscreen();
+        }
+
+        focus_terminal_pane(id, true);
+
+        // Enter fullscreen on the target. After `exit_first` the tab is tiled,
+        // so we always need it. Without `exit_first`, only skip when the target
+        // was already the flagged-fullscreen pane (cross-tab idempotent case).
+        let already_fullscreen = self.pane_is_fullscreen_flag(id);
+        if exit_first || !already_fullscreen {
+            toggle_pane_id_fullscreen(PaneId::Terminal(id));
+        }
+    }
+
+    /// Raw `PaneInfo.is_fullscreen` flag for terminal pane `id` from the cached
+    /// manifest. Only used as a best-effort idempotency guard on the rare
+    /// cross-tab path; see [`State::tab_is_fullscreen`] for why this flag is
+    /// not trusted as the primary fullscreen signal.
+    fn pane_is_fullscreen_flag(&self, id: u32) -> bool {
+        let Some(manifest) = self.pane_manifest.as_ref() else {
+            return false;
+        };
+        manifest
+            .panes
+            .values()
+            .flatten()
+            .any(|p| !p.is_plugin && p.id == id && p.is_fullscreen)
+    }
+
     fn apply_effects(&mut self, effects: &[Effect], should_render: &mut bool) {
         for effect in effects {
             match effect {
@@ -439,18 +528,7 @@ impl State {
                     *should_render = true;
                 }
                 Effect::FocusPane(id) => {
-                    // TODO: This has a bug on macOS with hidden panes.
-                    focus_terminal_pane(*id, true);
-                    // Always end the jump with the target pane fullscreen.
-                    // zellij only exposes a *toggle* (no SetFullscreen), so we
-                    // guard on the pane's last-known fullscreen state and only
-                    // toggle when it is NOT already fullscreen. This makes the
-                    // behavior idempotent: re-jumping to an already-fullscreen
-                    // pane keeps it fullscreen instead of flipping it back to
-                    // normal. Targeting by id avoids racing the focus call.
-                    if !self.pane_is_fullscreen(*id) {
-                        toggle_pane_id_fullscreen(PaneId::Terminal(*id));
-                    }
+                    self.jump_focus_fullscreen(*id);
                 }
                 Effect::Save => {
                     self.persistence
