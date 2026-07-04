@@ -184,7 +184,7 @@ A single Vec carries both materialized panes and post-freeze pending entries; th
 
 ### Requirement: Non-unique identity panes are best-effort across reload
 
-When two or more panes have identical `(tab_name, pane_title)` anywhere in the session (whether in the same tab or different tabs), persistence cannot distinguish them across reloads. Their relative order in the restored `State.panes` is implementation-defined and MAY differ from the saved order.
+When two or more panes have identical `(tab_name, pane_title)` anywhere in the session (whether in the same tab or different tabs), persistence SHALL treat them as indistinguishable across reloads: restore MUST NOT guarantee their relative order, so their relative order in the restored `State.panes` is implementation-defined and MAY differ from the saved order.
 
 This limitation is broader than "duplicate within tab": tab names themselves may not be unique session-wide (zellij allows multiple tabs with the same name), so two `("work", "nvim")` bookmarks in two different `"work"`-named tabs collide on identity.
 

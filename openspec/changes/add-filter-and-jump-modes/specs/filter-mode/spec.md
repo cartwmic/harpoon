@@ -253,3 +253,9 @@ While mode is `Filter` AND query is non-empty, `update_panes()` (the handler for
 ### Requirement: Every filter-mode key path triggers a render
 
 Every `handle_filter_key` code path that mutates `State.query`, `State.selected`, or `State.mode` SHALL cause `update()` to return `should_render = true` so that the visible UI reflects the keystroke before the next pane event.
+
+#### Scenario: Typing a character re-renders the filtered list
+- **GIVEN** mode is `Filter` and query is `"ed"`
+- **WHEN** the user presses a printable key that mutates `State.query`
+- **THEN** `handle_filter_key` returns an effect set including `Effect::Render`
+- **AND** `update()` returns `should_render = true` for that event
