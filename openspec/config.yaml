@@ -1,0 +1,10 @@
+schema: opsx-superpowers
+
+# Project context (optional)
+context: |
+  harpoon: a zellij plugin (fork of Nacho114/harpoon) maintaining hotkeyed
+  tab/pane slots for fast navigation. Rust, compiled to wasm.
+  Build MUST target wasm32-wasip1 (native fails: undefined _host_run_plugin_command).
+  Deploy: cp target/wasm32-wasip1/release/harpoon.wasm ~/.config/zellij/plugins/
+  Hot-reload: zellij action start-or-reload-plugin "file:$HOME/.config/zellij/plugins/harpoon.wasm"
+  Tests live in harpoon-core (native cargo test).

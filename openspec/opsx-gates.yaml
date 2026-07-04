@@ -1,0 +1,15 @@
+# opsx-gates.yaml — validation gates for the harpoon zellij plugin.
+# opsx gate runs each command by exit code: required:true non-zero = GATE-FAIL,
+# required:false non-zero = warning. Commands run with cwd = the located
+# implementation worktree and OPSX_CHANGE / OPSX_CHANGE_DIR / OPSX_WORKTREE /
+# OPSX_DIFF_BASE / OPSX_HEAD exported.
+gates:
+  - id: openspec-validate
+    run: openspec validate --changes --strict
+    required: true
+  - id: harpoon-build-wasm
+    run: cargo build --release -p harpoon --target wasm32-wasip1
+    required: true
+  - id: harpoon-core-tests
+    run: cargo test -p harpoon-core
+    required: true
