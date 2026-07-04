@@ -49,8 +49,8 @@ any mode by setting it (in BOTH the front-matter and this table).
 
 ## Diff Base + Worktree locator
 
-**Diff Base SHA:** <empty until apply captures it>
-**Worktree Path:** <empty until apply captures it>
+**Diff Base SHA:** 80627802fc3e6eeda338f6501b861ce5aea22c4c
+**Worktree Path:** /Volumes/Workshop/git/harpoon-ntfy-harpoon-jump
 **Integration Branch:** main
 
 ## Manual Adjustments

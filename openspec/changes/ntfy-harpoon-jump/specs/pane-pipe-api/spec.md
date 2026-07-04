@@ -29,13 +29,14 @@ via `cli_pipe_output`, the 1-based harpoon slot holding the given pane id, and
 SHALL NOT mutate harpoon state.
 
 #### Scenario: harpooned pane
-- **WHEN** a `slot_for_pane` pipe carries a pane id that is bookmarked at
-  0-based store index `2`
+- **WHEN** a `slot_for_pane` pipe carries a pane id whose bookmark is materialized
+  at 0-based slot index `2` (`PaneBookmark.index`)
 - **THEN** the plugin SHALL emit the string `3` on the CLI pipe output
 
 #### Scenario: un-harpooned pane
-- **IF** a `slot_for_pane` pipe carries a pane id that is not present in the
-  harpoon store
+- **IF** a `slot_for_pane` pipe carries a pane id that has no bookmark in the
+  harpoon store, or whose bookmark has no materialized slot index
+  (`PaneBookmark.index` is `None`)
 - **THEN** the plugin SHALL emit an empty string on the CLI pipe output and leave
   harpoon state unchanged
 

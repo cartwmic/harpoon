@@ -18,9 +18,9 @@ use zellij_tile::prelude::*;
 
 use harpoon_core::{
     build_header, build_hint_line, build_row_entries, build_rows, compute_layout_budget, dispatch,
-    filtered_indices, focused_idx as core_focused_idx, reanchor_selected_to_focus,
-    resolve_restore_round, BookmarkStore, Config, DispatchContext, DispatchState, Effect,
-    HighlightKind, InputKey, MatcherImpl, ModifierSet, Pane, RenderRow, VisiblePane,
+    filtered_indices, focused_idx as core_focused_idx, parse_pane_id, reanchor_selected_to_focus,
+    resolve_restore_round, slot_for_pane, BookmarkStore, Config, DispatchContext, DispatchState,
+    Effect, HighlightKind, InputKey, MatcherImpl, ModifierSet, Pane, RenderRow, VisiblePane,
 };
 
 /// Phase 0.1 verified: y=0 IS visible in zellij 0.44.1 floating plugin
@@ -136,6 +136,44 @@ impl ZellijPlugin for State {
             _ => (),
         };
         should_render
+    }
+
+    /// External CLI-pipe interface (`pane-pipe-api` capability). Answers two
+    /// named requests from `zellij pipe`, driven over the ntfy-harpoon-jump
+    /// SSH side-channel:
+    ///
+    /// - `slot_for_pane` — reverse lookup; writes the 1-based harpoon slot for
+    ///   the payload pane id (or an empty string) back to the CLI via
+    ///   [`cli_pipe_output`]. Pure read; never mutates state.
+    /// - `jump_pane` — focuses the payload pane id via the existing
+    ///   deterministic fullscreen-safe [`State::jump_focus_fullscreen`].
+    ///
+    /// The payload is a zellij pane id (`terminal_N` as exported to
+    /// `$ZELLIJ_PANE_ID`, or bare `N`). An unresolvable/absent payload is a
+    /// no-op: no state mutation, no focus change.
+    fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
+        // Only CLI-originated pipes drive this external surface.
+        let PipeSource::Cli(_) = pipe_message.source else {
+            return false;
+        };
+        let payload = pipe_message.payload.unwrap_or_default();
+        match pipe_message.name.as_str() {
+            "slot_for_pane" => {
+                let output = parse_pane_id(&payload)
+                    .and_then(|id| slot_for_pane(&self.store, id))
+                    .map(|slot| slot.to_string())
+                    .unwrap_or_default();
+                cli_pipe_output(&pipe_message.name, &output);
+            }
+            "jump_pane" => {
+                if let Some(id) = parse_pane_id(&payload) {
+                    self.jump_focus_fullscreen(id);
+                }
+            }
+            _ => {}
+        }
+        // No re-render: neither handler changes plugin-visible UI state.
+        false
     }
 
     fn render(&mut self, rows: usize, cols: usize) {
