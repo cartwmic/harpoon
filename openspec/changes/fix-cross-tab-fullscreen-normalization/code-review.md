@@ -5,8 +5,8 @@
 **review_mode:** adversarial-multimodel
 **reviewer-provenance:** pi-subagents parallel dispatch — openai-codex/gpt-5.6-sol (designated doneness judge), claude-bridge/claude-fable-5
 **Diff Base SHA:** 096734ea4c80c9985debb04cf740f26a92961201
-**Reviewed Range:** 096734ea4c80c9985debb04cf740f26a92961201..1303ceef02d777350da68b19473b57fb8ba56bb3
-**Attested HEAD:** 1303ceef02d777350da68b19473b57fb8ba56bb3
+**Reviewed Range:** 096734ea4c80c9985debb04cf740f26a92961201..1e9977077237400809313121f70f931e3de1f493
+**Attested HEAD:** 1e9977077237400809313121f70f931e3de1f493
 **Baseline:** intent.md + proposal + specs + plan + tasks status
 **Generated:** 2026-07-09
 
@@ -16,12 +16,15 @@
 |---|---|---|---|---|---|---|---|
 | 1 | blind | 0 | 4 | 1 | 3 | gpt-5.6-sol:fail fable-5:fail | ca77e20fc2af067b8822fe0eefe3efc53a27c0ba |
 | 2 | blind | 0 | 0 | 2 | 4 | gpt-5.6-sol:pass fable-5:pass | 1303ceef02d777350da68b19473b57fb8ba56bb3 |
+| 3 | blind | 0 | 0 | 2 | 5 | gpt-5.6-sol:pass fable-5:pass | 1e9977077237400809313121f70f931e3de1f493 |
 
 ## Findings
 
-Round 2 consolidated (max across reviewers; verdict sources /tmp/cr-r2-sol.md,
-/tmp/cr-r2-fable.md). All round-1 P1s were fixed at 1303cee and neither
-round-2 reviewer re-raised them.
+Round 3 (post-rebase re-attest; verdict sources /tmp/cr-r3-sol.md,
+/tmp/cr-r3-fable.md) re-confirmed the round-2 quiet result at the rebased
+HEAD: 0 P0/P1, advisories only (same set as round 2 plus one cosmetic
+signature-drift note in the live mode-state-machine spec text). Round-2
+consolidated findings below; all round-1 P1s fixed at 1303cee.
 
 | # | Finding | Severity | Status |
 |---|---|---|---|
@@ -54,7 +57,7 @@ round-2 reviewer re-raised them.
 
 ## Verdict rationale
 
-Round 2 quiet: both blind reviewers pass with 0 P0/P1 (consolidated max).
+Rounds 2 and 3 quiet: both blind reviewers pass with 0 P0/P1 (consolidated max) at 1303cee and again at the rebased HEAD 1e99770 (archive-check base-currency rebase onto main d930ab1; re-attest per staleness rule).
 Both independently re-verified the mechanical gates read-only (strict
 validate, wasm build, 238 core tests) and confirmed the diff touches no gate
 manifest. Implementation judged baseline-faithful across Constitution I/IV/V,

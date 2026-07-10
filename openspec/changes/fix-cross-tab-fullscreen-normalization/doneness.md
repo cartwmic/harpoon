@@ -5,9 +5,9 @@
 **Judge:** openai-codex/gpt-5.6-sol — designated reviewer (first model of the resolved `review` role set), combined blind code-review dispatch via pi-subagents
 **review_mode:** blind-single-judge
 **Frozen-Intent SHA:** b07a65d9c74361a41ea139f42d2e26c5e236acce42d58c227244a9d5e8aa9f63
-**Attested HEAD:** 1303ceef02d777350da68b19473b57fb8ba56bb3
+**Attested HEAD:** 1e9977077237400809313121f70f931e3de1f493
 **Diff Base SHA:** 096734ea4c80c9985debb04cf740f26a92961201
-**Reviewed Range:** 096734ea4c80c9985debb04cf740f26a92961201..1303ceef02d777350da68b19473b57fb8ba56bb3
+**Reviewed Range:** 096734ea4c80c9985debb04cf740f26a92961201..1e9977077237400809313121f70f931e3de1f493
 
 ## Verdict rationale
 
