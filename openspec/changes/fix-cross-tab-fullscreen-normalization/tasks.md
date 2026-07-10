@@ -1,7 +1,7 @@
 <!-- authored: in-session -->
 ## 1. SDK bump (zellij-tile 0.42.2 → 0.44.3)
 
-- [ ] 1.1 Bump workspace `zellij-tile` to `0.44.3`; refresh Cargo.lock; fix
+- [x] 1.1 Bump workspace `zellij-tile` to `0.44.3`; refresh Cargo.lock; fix
       call-site signature changes (known: `focus_terminal_pane(id, true, false)`
       gains a 3rd bool). Build + tests must pass unchanged in behavior.
   - intent: infra
