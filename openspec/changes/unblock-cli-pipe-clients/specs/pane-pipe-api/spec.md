@@ -4,10 +4,10 @@
 
 ### Requirement: Cli Pipe Client Release
 
-WHEN THE plugin finishes handling a CLI-sourced pipe message (`jump_pane`,
-`slot_for_pane`, or an unrecognized name), THE plugin SHALL unblock that CLI
-pipe's input exactly once, so the invoking `zellij pipe` client process
-terminates without depending on the host's implicit release.
+THE plugin SHALL unblock a CLI pipe's input exactly once after handling each
+CLI-sourced pipe message (`jump_pane`, `slot_for_pane`, or an unrecognized
+name), so the invoking `zellij pipe` client process terminates without
+depending on the host's implicit release.
 
 #### Scenario: jump_pane client terminates
 - **WHEN** a CLI `jump_pane` pipe message is handled (resolvable or not)
