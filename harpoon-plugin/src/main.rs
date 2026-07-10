@@ -529,7 +529,7 @@ impl State {
             toggle_focus_fullscreen();
         }
 
-        focus_terminal_pane(id, true);
+        focus_terminal_pane(id, true, false);
 
         // Enter fullscreen on the target. After `exit_first` the tab is tiled,
         // so we always need it. Without `exit_first`, only skip when the target
