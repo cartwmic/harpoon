@@ -19,8 +19,9 @@ use zellij_tile::prelude::*;
 use harpoon_core::{
     build_header, build_hint_line, build_row_entries, build_rows, compute_layout_budget, dispatch,
     filtered_indices, focused_idx as core_focused_idx, parse_pane_id, reanchor_selected_to_focus,
-    resolve_restore_round, slot_for_pane, BookmarkStore, Config, DispatchContext, DispatchState,
-    Effect, HighlightKind, InputKey, MatcherImpl, ModifierSet, Pane, RenderRow, VisiblePane,
+    post_focus_fullscreen_toggle, resolve_restore_round, slot_for_pane, BookmarkStore, Config,
+    DispatchContext, DispatchState, Effect, FullscreenGroundTruth, HighlightKind, InputKey,
+    MatcherImpl, ModifierSet, Pane, RenderRow, VisiblePane,
 };
 
 /// Phase 0.1 verified: y=0 IS visible in zellij 0.44.1 floating plugin
@@ -308,54 +309,6 @@ impl State {
         out
     }
 
-    /// The tab position (manifest key) whose pane list contains the non-plugin
-    /// terminal pane `id`, or `None` if not found in the cached manifest.
-    /// Hidden-by-fullscreen panes are still present in the manifest, so this
-    /// resolves even for the suppressed sibling of a fullscreen pane.
-    fn tab_pos_of_pane(&self, id: u32) -> Option<usize> {
-        let manifest = self.pane_manifest.as_ref()?;
-        manifest
-            .panes
-            .iter()
-            .find(|(_, panes)| panes.iter().any(|p| !p.is_plugin && p.id == id))
-            .map(|(pos, _)| *pos)
-    }
-
-    /// Whether the *tab* containing terminal pane `id` is currently in
-    /// fullscreen mode. Uses the authoritative `TabInfo.is_fullscreen_active`
-    /// (documented as "whether there's one pane taking up the whole display
-    /// area on this tab") rather than `PaneInfo.is_fullscreen`.
-    ///
-    /// `PaneInfo.is_fullscreen` is unreliable for this decision: empirically,
-    /// in a stacked fullscreen layout multiple panes report `is_fullscreen =
-    /// true` while the actually-hidden sibling reports `false`, and the flag
-    /// does not map cleanly to "is the tab in fullscreen mode". The tab-level
-    /// flag is the ground truth.
-    fn tab_is_fullscreen(&self, id: u32) -> bool {
-        let Some(pos) = self.tab_pos_of_pane(id) else {
-            return false;
-        };
-        self.tab_info
-            .as_ref()
-            .map(|tabs| {
-                tabs.iter()
-                    .any(|t| t.position == pos && t.is_fullscreen_active)
-            })
-            .unwrap_or(false)
-    }
-
-    /// Whether terminal pane `id` lives in the currently-active (focused) tab.
-    /// Used to decide whether `toggle_focus_fullscreen()` (which acts on the
-    /// active tab's focused pane) is safe to use as a normalization step.
-    fn pane_in_active_tab(&self, id: u32) -> bool {
-        let Some(pos) = self.tab_pos_of_pane(id) else {
-            return false;
-        };
-        self.tab_info
-            .as_ref()
-            .map(|tabs| tabs.iter().any(|t| t.position == pos && t.active))
-            .unwrap_or(false)
-    }
 
     /// Find the user's currently-focused terminal pane (the one they came
     /// from when opening harpoon).
@@ -487,72 +440,61 @@ impl State {
     }
 
     /// Apply a `Vec<Effect>` from the dispatch core. `Effect::Close` triggers
-    /// `close_self()` + close-helper reset; `Effect::FocusPane(id)` triggers
+    /// `hide_self()` + close-helper reset; `Effect::FocusPane(id)` triggers
     /// [`State::jump_focus_fullscreen`]; `Effect::Save` saves persistence;
     /// `Effect::Render` flips `should_render = true`; `Effect::Noop` is ignored.
     ///
     /// Order is significant for `Close ↔ FocusPane`: handlers MUST emit them
-    /// as `[Close, FocusPane]` so `close_self()` runs before
-    /// `jump_focus_fullscreen()` — the plugin pane is closed first, then the
-    /// focus/fullscreen actions on the target terminal pane are the last
-    /// focus-affecting actions (they target terminal panes by id, so they
-    /// still execute after the plugin pane is gone).
+    /// as `[Close, FocusPane]` so `hide_self()` runs before
+    /// `jump_focus_fullscreen()` — the plugin pane leaves the screen first,
+    /// then the focus/fullscreen actions on the target terminal pane are the
+    /// last focus-affecting actions (they target terminal panes by id, so the
+    /// hidden plugin pane can never steal the final focus).
     /// Focus the target terminal pane and deterministically leave it
     /// fullscreen — the always-on "jump fullscreens the target" behavior.
     ///
-    /// zellij only exposes a *toggle* (no SetFullscreen), and we cannot read
-    /// post-focus state synchronously (the plugin is closed on jump). Worse,
-    /// the side-effect of focusing a *hidden* pane on the tab's fullscreen
-    /// state is not consistent: in a plain fullscreen it keeps fullscreen and
-    /// swaps the shown pane, but in a stacked fullscreen it *drops* fullscreen.
-    /// A predict-then-toggle scheme therefore cannot be correct in both cases.
+    /// zellij only exposes fullscreen *toggles* (no SetFullscreen), so the
+    /// toggle decision must come from state that is true at decision time.
+    /// Since zellij 0.44.3 the host exposes synchronous queries
+    /// (`get_focused_pane_info`, `get_tab_info`), so nothing is predicted and
+    /// no event cache is consulted:
     ///
-    /// Instead we normalize to a known state: if the target's tab is currently
-    /// fullscreen, exit fullscreen first (deterministically tiling the tab),
-    /// then focus the target, then enter fullscreen on the target by id. Every
-    /// step starts from a known state, so the end state is always "target
-    /// focused + fullscreen" regardless of layout (plain or stacked).
+    /// 1. focus the target pane by id (cross-tab capable);
+    /// 2. query ground truth — the now-focused pane's tab and its
+    ///    `TabInfo.is_fullscreen_active`;
+    /// 3. toggle only when the tab is provably tiled: from tiled, a toggle can
+    ///    only ENTER fullscreen, so the wrong direction is structurally
+    ///    impossible ([`harpoon_core::post_focus_fullscreen_toggle`]).
     ///
-    /// `toggle_focus_fullscreen()` acts on the active tab's focused pane, so we
-    /// only use it to pre-exit when the target lives in the active tab. For the
-    /// rare cross-tab jump into an already-fullscreen tab we fall back to a
-    /// best-effort focus + toggle, skipping the toggle only when the target is
-    /// itself the flagged-fullscreen pane (keeps a cross-tab re-jump idempotent).
+    /// Correct in all quadrants (plain/stacked × same-tab/cross-tab) and
+    /// independent of the event caches, which are still `None` on a cold
+    /// pipe-spawned instance (the ntfy notification-jump path receives its
+    /// `PipeMessage` before the first `TabUpdate`/`PaneUpdate`).
+    ///
+    /// AC: `pane-pipe-api.jump-to-pane-by-id`
+    /// AC: `pane-pipe-api.ground-truth-fullscreen-normalization`
     fn jump_focus_fullscreen(&self, id: u32) {
-        let tab_fs = self.tab_is_fullscreen(id);
-        let in_active = self.pane_in_active_tab(id);
-        let exit_first = tab_fs && in_active;
-
-        if exit_first {
-            // Active tab is fullscreen and target is in it: exit fullscreen so
-            // the subsequent focus happens from a tiled state.
-            toggle_focus_fullscreen();
-        }
-
         focus_terminal_pane(id, true, false);
 
-        // Enter fullscreen on the target. After `exit_first` the tab is tiled,
-        // so we always need it. Without `exit_first`, only skip when the target
-        // was already the flagged-fullscreen pane (cross-tab idempotent case).
-        let already_fullscreen = self.pane_is_fullscreen_flag(id);
-        if exit_first || !already_fullscreen {
+        let truth = match get_focused_pane_info() {
+            Ok((tab_id, PaneId::Terminal(focused_id))) if focused_id == id => {
+                match get_tab_info(tab_id) {
+                    Some(tab) if tab.is_fullscreen_active => {
+                        FullscreenGroundTruth::Fullscreen
+                    }
+                    Some(_) => FullscreenGroundTruth::Tiled,
+                    // Tab lookup failed: state unknown — never toggle blind.
+                    None => FullscreenGroundTruth::Unknown,
+                }
+            }
+            // Focus did not land on the target (pane gone, query error):
+            // state unknown — never toggle blind.
+            _ => FullscreenGroundTruth::Unknown,
+        };
+
+        if post_focus_fullscreen_toggle(truth) {
             toggle_pane_id_fullscreen(PaneId::Terminal(id));
         }
-    }
-
-    /// Raw `PaneInfo.is_fullscreen` flag for terminal pane `id` from the cached
-    /// manifest. Only used as a best-effort idempotency guard on the rare
-    /// cross-tab path; see [`State::tab_is_fullscreen`] for why this flag is
-    /// not trusted as the primary fullscreen signal.
-    fn pane_is_fullscreen_flag(&self, id: u32) -> bool {
-        let Some(manifest) = self.pane_manifest.as_ref() else {
-            return false;
-        };
-        manifest
-            .panes
-            .values()
-            .flatten()
-            .any(|p| !p.is_plugin && p.id == id && p.is_fullscreen)
     }
 
     fn apply_effects(&mut self, effects: &[Effect], should_render: &mut bool) {
@@ -577,19 +519,21 @@ impl State {
         }
     }
 
-    /// Single canonical close path: `close_self()`, reset mode to default,
+    /// Single canonical close path: `hide_self()`, reset mode to default,
     /// clear query, re-anchor selected so the next open lands on a valid
     /// index.
     ///
-    /// `close_self()` (vs `hide_self()`) fully destroys the plugin pane so the
-    /// next `LaunchOrFocusPlugin` keybind launches a FRESH instance. This
-    /// works around a zellij focus quirk where re-focusing a *hidden* floating
-    /// plugin pane (esp. on macOS, and more often when a terminal pane is
-    /// fullscreen) lands focus on a terminal pane instead of re-showing the
-    /// plugin. A fresh launch has no stale hidden float to mis-focus. Bookmark
-    /// state survives because it is persisted to disk and reloaded in `load()`.
+    /// `hide_self()` (vs `close_self()`) keeps the plugin instance alive so
+    /// the next `LaunchOrFocusPlugin` re-shows it warm — no per-invocation
+    /// wasm load (~47–92ms) and no cold event caches. This reverts commit
+    /// d6a2039, whose close_self workaround targeted a zellij mis-focus quirk
+    /// (re-focusing a hidden floating plugin pane landed focus on a terminal
+    /// pane); the quirk does not reproduce on zellij 0.44.3, the supported
+    /// floor (verified 2026-07-09: 10/10 hide/relaunch cycles under the
+    /// original trigger condition, one plugin load). This also rejoins the
+    /// mode-state-machine spec, which mandates `hide_self()` on this path.
     fn close_helper(&mut self) {
-        close_self();
+        hide_self();
         self.dispatch_state.mode = self.dispatch_state.default_mode;
         self.dispatch_state.query.clear();
         let f_idx = core_focused_idx(

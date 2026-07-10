@@ -23,7 +23,7 @@
   - files_allowed:
       - harpoon-core/**/*.rs
   - allow_new_files: true
-- [ ] 2.2 Rewrite `jump_focus_fullscreen` in the shim as: focus target →
+- [x] 2.2 Rewrite `jump_focus_fullscreen` in the shim as: focus target →
       synchronous post-focus ground-truth query of the tab's fullscreen state
       (0.44.3 host API; verified viable in the 2026-07-09 exploration spike) →
       toggle only when provably tiled, via the core decision function. Delete
@@ -35,7 +35,7 @@
       - harpoon-plugin/src/main.rs
       - harpoon-core/**/*.rs
   - allow_new_files: false
-- [ ] 2.3 Revert d6a2039: `close_helper` returns to `hide_self()`; replace the
+- [x] 2.3 Revert d6a2039: `close_helper` returns to `hide_self()`; replace the
       close_self rationale comment with the 0.44.3 persistence rationale
       (quirk dead; spec mandate rejoined). Preserve `[Effect::Close,
       Effect::FocusPane]` ordering.
