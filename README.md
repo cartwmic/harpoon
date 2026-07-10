@@ -252,6 +252,27 @@ cd harpoon-plugin && cargo build --release
 you need either `cd harpoon-plugin/` OR explicit `--target wasm32-wasip1`
 when invoking from root.)
 
+### Permissions & runtime activation
+
+The plugin requests `RunCommands`, `ReadApplicationState`,
+`ChangeApplicationState`, and `ReadCliPipes` (the last gates
+`unblock_cli_pipe_input` / `cli_pipe_output` — without it every CLI pipe
+client hangs as a zombie and `slot_for_pane` produces no output).
+
+After deploying a wasm whose permission set grew (e.g. the `ReadCliPipes`
+addition), the grant must be renewed at runtime:
+
+1. Deploy: `cp target/wasm32-wasip1/release/harpoon.wasm ~/.config/zellij/plugins/`
+2. Open harpoon in a **visible** plugin pane and answer the new permission
+   prompt (`y`). A hidden/background instance never shows the prompt, so
+   **skipping the visible-pane regrant leaves the new permission inert**.
+3. Verify the grant landed: the zellij cache `permissions.kdl` (path from
+   `zellij setup --check`, `[CACHE DIR]`) lists `ReadCliPipes` under this
+   plugin's path.
+4. Restart any long-lived zellij server that predates the grant (e.g. a
+   `workspace` session) to clear accumulated wedged pipe clients:
+   `zellij kill-session <name>` then reattach.
+
 ## Keybinding
 
 See [Configuration](#configuration) above.

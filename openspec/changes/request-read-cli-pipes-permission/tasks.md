@@ -30,7 +30,7 @@
 
 ## 3. Runtime activation documentation (operational — outside gate assertions)
 
-- [ ] 3.1 Document the runtime activation steps in the README (or this
+- [x] 3.1 Document the runtime activation steps in the README (or this
   change's docs): deploy wasm to `~/.config/zellij/plugins/harpoon.wasm`;
   answer the new permission prompt in a VISIBLE plugin pane; verify
   `~/.config/zellij/permissions.kdl` gains `ReadCliPipes` for that plugin
