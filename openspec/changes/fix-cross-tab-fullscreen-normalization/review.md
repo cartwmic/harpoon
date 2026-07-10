@@ -80,6 +80,14 @@ loop_hold_reason: "gate green at worktree 1303cee — ready-to-archive report pr
   (blind-single-judge, designated reviewer gpt-5.6-sol). opsx gate
   --worktree: GATE-PASS (M), exit 0. Loop landed: ready to archive,
   awaiting human authorization.
+- 2026-07-09 — archive authorized by user. archive-check round 1 refused
+  (stale base); remedy applied: branch rebased onto main d930ab1 (new HEAD
+  1e99770), round-3 blind 2-model re-attest (quiet pass), verdicts re-sealed
+  (eeb126e). GATE-PASS + archive-check OK. AC↔test gate:
+  pane-pipe-api.targeted-pipe-delivery has no test literal by design —
+  documentation-only AC, verified via the README --plugin grep (plan step 5,
+  T5.1); allowed per option B. verify.md absent — allowed
+  (retained-recommended). Branch ff-merged to main; worktree removed.
 
 ## Scope Expansions
 
