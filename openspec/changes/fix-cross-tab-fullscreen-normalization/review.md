@@ -35,9 +35,9 @@ doneness_mode: required
 
 ## Diff Base + Worktree locator
 
-**Diff Base SHA:** <empty until apply captures it>
-**Worktree Path:** <empty until apply captures it>
-**Integration Branch:** <detected-at-capture>
+**Diff Base SHA:** 096734ea4c80c9985debb04cf740f26a92961201
+**Worktree Path:** /Volumes/Workshop/git/harpoon-opsx-fix-cross-tab-fullscreen-normalization
+**Integration Branch:** main
 
 ## Manual Adjustments
 
@@ -52,6 +52,8 @@ doneness_mode: required
 
 - 2026-07-09 — review.md authored in-session during loop bootstrap
   (authored: in-session).
+- 2026-07-09 — worktree created (branch opsx/fix-cross-tab-fullscreen-normalization
+  from main @ 096734e); locator captured.
 
 ## Scope Expansions
 
