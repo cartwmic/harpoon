@@ -6,6 +6,7 @@
 //! `jump_focus_fullscreen`.
 
 use crate::bookmark::BookmarkStore;
+use crate::effect::Effect;
 
 /// Parse a zellij pane-id string into a terminal pane id.
 ///
@@ -68,24 +69,27 @@ pub enum FullscreenGroundTruth {
     Unknown,
 }
 
-/// Post-focus fullscreen toggle decision for the jump path.
+/// Post-focus fullscreen effect plan for the jump path (core-owned decision,
+/// Constitution I): given ground truth queried AFTER the target pane `id`
+/// was focused, emit the ordered effects the shim must apply.
 ///
-/// Returns `true` when the shim SHALL issue `toggle_pane_id_fullscreen` on
-/// the (already focused) target, `false` otherwise:
-///
-/// - `Fullscreen` → `false`: goal state already holds; a toggle would EXIT
-///   fullscreen (the historical bug).
-/// - `Tiled` → `true`: the only state needing a toggle; from tiled it can
-///   only enter fullscreen, so the wrong direction is structurally
-///   impossible.
-/// - `Unknown` → `false`: never toggle from unknown state — zellij has no
+/// - `Fullscreen` → `[]`: goal state already holds — the just-focused target
+///   IS the fullscreen pane; a toggle would EXIT fullscreen (the historical
+///   bug).
+/// - `Tiled` → `[Effect::ToggleFullscreenPane(id)]`: the only state needing
+///   a toggle; from tiled it can only enter fullscreen, so the wrong
+///   direction is structurally impossible.
+/// - `Unknown` → `[]`: never toggle from unknown state — zellij has no
 ///   absolute set-fullscreen, so a blind toggle is wrong half the time
 ///   (Constitution IV; domain invariant 1).
 ///
 /// AC: `pane-pipe-api.ground-truth-fullscreen-normalization`.
 /// AC: `pane-pipe-api.jump-to-pane-by-id`.
-pub fn post_focus_fullscreen_toggle(truth: FullscreenGroundTruth) -> bool {
-    matches!(truth, FullscreenGroundTruth::Tiled)
+pub fn post_focus_fullscreen_plan(truth: FullscreenGroundTruth, id: u32) -> Vec<Effect> {
+    match truth {
+        FullscreenGroundTruth::Tiled => vec![Effect::ToggleFullscreenPane(id)],
+        FullscreenGroundTruth::Fullscreen | FullscreenGroundTruth::Unknown => Vec::new(),
+    }
 }
 
 #[cfg(test)]
@@ -207,26 +211,26 @@ mod tests {
     // AC: pane-pipe-api.jump-to-pane-by-id — post-focus normalization leaves
     // the target fullscreen in every quadrant reachable at decision time.
     #[test]
-    fn fullscreen_tab_needs_no_toggle() {
+    fn fullscreen_tab_plans_no_effects() {
         // Target was just focused; tab fullscreen => target IS the fullscreen
         // pane. A toggle here would exit fullscreen (the historical bug).
-        assert!(!post_focus_fullscreen_toggle(
-            FullscreenGroundTruth::Fullscreen
-        ));
+        assert!(post_focus_fullscreen_plan(FullscreenGroundTruth::Fullscreen, 7).is_empty());
     }
 
     #[test]
-    fn tiled_tab_gets_enter_toggle() {
-        // AC: pane-pipe-api.jump-to-pane-by-id
-        assert!(post_focus_fullscreen_toggle(FullscreenGroundTruth::Tiled));
+    fn tiled_tab_plans_enter_toggle_on_target() {
+        // AC: pane-pipe-api.jump-to-pane-by-id — the emitted effect carries
+        // the target pane id, so the shim cannot toggle the wrong pane.
+        assert_eq!(
+            post_focus_fullscreen_plan(FullscreenGroundTruth::Tiled, 7),
+            vec![Effect::ToggleFullscreenPane(7)]
+        );
     }
 
     // AC: pane-pipe-api.ground-truth-fullscreen-normalization — never toggle
     // from unknown state (no absolute set-fullscreen exists in zellij).
     #[test]
-    fn unknown_state_never_toggles() {
-        assert!(!post_focus_fullscreen_toggle(
-            FullscreenGroundTruth::Unknown
-        ));
+    fn unknown_state_plans_no_effects() {
+        assert!(post_focus_fullscreen_plan(FullscreenGroundTruth::Unknown, 7).is_empty());
     }
 }

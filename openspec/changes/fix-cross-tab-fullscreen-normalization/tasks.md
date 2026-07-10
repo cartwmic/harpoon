@@ -58,12 +58,25 @@
       - scripts/**
   - allow_new_files: true
 - [x] 3.2 Run the harness against the built wasm; record pass/fail evidence
-      per scenario in review.md Execution Notes (evidence lines cite the
-      scenario numbers).
+      per scenario below AND in review.md Execution Notes (evidence lines cite
+      the scenario numbers).
   - intent: fix
   - files_allowed:
       - openspec/changes/fix-cross-tab-fullscreen-normalization/tasks.md
   - allow_new_files: false
+
+  Evidence (scripts/fullscreen-regression.sh, zellij 0.44.3, macOS, two
+  consecutive full runs on 2026-07-09 at the post-round-1-fix build — both
+  runs identical):
+  - S1 cold-start hidden-target lands fullscreen — PASS (+ coldness proof:
+    new plugin load observed)
+  - S2 cold-start fullscreened-target-itself stays fullscreen — PASS
+    (+ coldness proof: new load of the distinct-path S2 wasm copy)
+  - S3 warm cross-tab lands fullscreen — PASS (+ persistence proof: zero new
+    loads, S1's instance reused)
+  - S4 5× hide/relaunch under fullscreen terminal re-shows focused — PASS
+    (+ zero new loads across cycles; d6a2039 quirk not reproduced)
+  - Totals: 8/8 assertions PASS per run
 
 ## 4. Documentation
 
@@ -80,8 +93,10 @@
 
 - [x] 5.1 All gates green in the worktree: `openspec validate --changes
       --strict`, `cargo build --release -p harpoon --target wasm32-wasip1`,
-      `cargo test -p harpoon-core`. AC-citing tests present for the three
-      delta AC IDs (grep-verifiable literals).
+      `cargo test -p harpoon-core`. AC-citing tests present for the two
+      behavioral delta AC IDs (grep-verifiable literals);
+      `pane-pipe-api.targeted-pipe-delivery` is a documentation AC verified
+      via the README `--plugin` grep in plan step 5 (no native test surface).
   - intent: fix
   - files_allowed:
       - harpoon-core/**/*.rs

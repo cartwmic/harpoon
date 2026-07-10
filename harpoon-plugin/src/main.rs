@@ -19,7 +19,7 @@ use zellij_tile::prelude::*;
 use harpoon_core::{
     build_header, build_hint_line, build_row_entries, build_rows, compute_layout_budget, dispatch,
     filtered_indices, focused_idx as core_focused_idx, parse_pane_id, reanchor_selected_to_focus,
-    post_focus_fullscreen_toggle, resolve_restore_round, slot_for_pane, BookmarkStore, Config,
+    post_focus_fullscreen_plan, resolve_restore_round, slot_for_pane, BookmarkStore, Config,
     DispatchContext, DispatchState, Effect, FullscreenGroundTruth, HighlightKind, InputKey,
     MatcherImpl, ModifierSet, Pane, RenderRow, VisiblePane,
 };
@@ -439,17 +439,6 @@ impl State {
             .save_if_changed(&self.store, &self.session_name);
     }
 
-    /// Apply a `Vec<Effect>` from the dispatch core. `Effect::Close` triggers
-    /// `hide_self()` + close-helper reset; `Effect::FocusPane(id)` triggers
-    /// [`State::jump_focus_fullscreen`]; `Effect::Save` saves persistence;
-    /// `Effect::Render` flips `should_render = true`; `Effect::Noop` is ignored.
-    ///
-    /// Order is significant for `Close ↔ FocusPane`: handlers MUST emit them
-    /// as `[Close, FocusPane]` so `hide_self()` runs before
-    /// `jump_focus_fullscreen()` — the plugin pane leaves the screen first,
-    /// then the focus/fullscreen actions on the target terminal pane are the
-    /// last focus-affecting actions (they target terminal panes by id, so the
-    /// hidden plugin pane can never steal the final focus).
     /// Focus the target terminal pane and deterministically leave it
     /// fullscreen — the always-on "jump fullscreens the target" behavior.
     ///
@@ -462,9 +451,11 @@ impl State {
     /// 1. focus the target pane by id (cross-tab capable);
     /// 2. query ground truth — the now-focused pane's tab and its
     ///    `TabInfo.is_fullscreen_active`;
-    /// 3. toggle only when the tab is provably tiled: from tiled, a toggle can
-    ///    only ENTER fullscreen, so the wrong direction is structurally
-    ///    impossible ([`harpoon_core::post_focus_fullscreen_toggle`]).
+    /// 3. hand the ground truth to core — [`harpoon_core::post_focus_fullscreen_plan`]
+    ///    emits `[Effect::ToggleFullscreenPane(id)]` only when the tab is
+    ///    provably tiled: from tiled, a toggle can only ENTER fullscreen, so
+    ///    the wrong direction is structurally impossible — and the shim
+    ///    applies the emitted effects (Constitution I split).
     ///
     /// Correct in all quadrants (plain/stacked × same-tab/cross-tab) and
     /// independent of the event caches, which are still `None` on a cold
@@ -473,7 +464,7 @@ impl State {
     ///
     /// AC: `pane-pipe-api.jump-to-pane-by-id`
     /// AC: `pane-pipe-api.ground-truth-fullscreen-normalization`
-    fn jump_focus_fullscreen(&self, id: u32) {
+    fn jump_focus_fullscreen(&mut self, id: u32) {
         focus_terminal_pane(id, true, false);
 
         let truth = match get_focused_pane_info() {
@@ -492,11 +483,26 @@ impl State {
             _ => FullscreenGroundTruth::Unknown,
         };
 
-        if post_focus_fullscreen_toggle(truth) {
-            toggle_pane_id_fullscreen(PaneId::Terminal(id));
-        }
+        let mut ignored_render = false;
+        let plan = post_focus_fullscreen_plan(truth, id);
+        self.apply_effects(&plan, &mut ignored_render);
     }
 
+    /// Apply a `Vec<Effect>` from the dispatch core — the single shim-side
+    /// mapping from core-emitted effects to zellij host calls. `Effect::Close`
+    /// triggers `hide_self()` + close-helper reset; `Effect::FocusPane(id)`
+    /// triggers [`State::jump_focus_fullscreen`];
+    /// `Effect::ToggleFullscreenPane(id)` calls
+    /// `toggle_pane_id_fullscreen(PaneId::Terminal(id))`; `Effect::Save`
+    /// saves persistence; `Effect::Render` flips `should_render = true`;
+    /// `Effect::Noop` is ignored.
+    ///
+    /// Order is significant for `Close ↔ FocusPane`: handlers MUST emit them
+    /// as `[Close, FocusPane]` so `hide_self()` runs before
+    /// `jump_focus_fullscreen()` — the plugin pane leaves the screen first,
+    /// then the focus/fullscreen actions on the target terminal pane are the
+    /// last focus-affecting actions (they target terminal panes by id, so the
+    /// hidden plugin pane can never steal the final focus).
     fn apply_effects(&mut self, effects: &[Effect], should_render: &mut bool) {
         for effect in effects {
             match effect {
@@ -509,6 +515,9 @@ impl State {
                 }
                 Effect::FocusPane(id) => {
                     self.jump_focus_fullscreen(*id);
+                }
+                Effect::ToggleFullscreenPane(id) => {
+                    toggle_pane_id_fullscreen(PaneId::Terminal(*id));
                 }
                 Effect::Save => {
                     self.persistence

@@ -6,7 +6,8 @@
 # screen-scraped) against the freshly built harpoon.wasm and asserts the four
 # scenarios:
 #   S1  cold-start pipe -> hidden pane of a fullscreen tab      (ends fullscreen)
-#   S2  cold-start pipe -> the fullscreened pane itself         (stays fullscreen)
+#   S2  cold-start pipe -> the fullscreened pane itself         (stays fullscreen;
+#       cold guaranteed via a distinct-path wasm copy = distinct plugin identity)
 #   S3  warm cross-tab pipe (persistent instance, no new load)  (ends fullscreen)
 #   S4  hide -> relaunch cycle under a fullscreen terminal pane (re-shows, focused,
 #       zero new plugin loads — the d6a2039 mis-focus-quirk detector)
@@ -17,6 +18,10 @@ set -euo pipefail
 
 REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 WASM="$REPO_ROOT/target/wasm32-wasip1/release/harpoon.wasm"
+# S2 uses a byte-identical COPY at a different path: zellij keys plugin
+# identity on (location, configuration), so the copy is a distinct plugin and
+# its first pipe is guaranteed COLD even after S1 warmed the primary path.
+WASM_S2="$REPO_ROOT/target/wasm32-wasip1/release/harpoon-s2-coldstart.wasm"
 SES="hreg$$"
 HOST="hreg-host$$"
 PASS=0; FAIL=0
@@ -25,7 +30,8 @@ PASS=0; FAIL=0
 say()  { printf '%s\n' "$*"; }
 scr()  { tmux capture-pane -t "$HOST" -p; }
 za()   { zellij -s "$SES" action "$@"; }
-pipe_jump() { timeout 20 zellij -s "$SES" pipe --name jump_pane --plugin "file:$WASM" -- "$1"; }
+pipe_jump()    { timeout 20 zellij -s "$SES" pipe --name jump_pane --plugin "file:$WASM" -- "$1"; }
+pipe_jump_s2() { timeout 20 zellij -s "$SES" pipe --name jump_pane --plugin "file:$WASM_S2" -- "$1"; }
 
 zellij_log() {
   # macOS: $TMPDIR/zellij-<uid>/zellij-log/zellij.log ; linux: /tmp/zellij-<uid>/...
@@ -36,7 +42,13 @@ zellij_log() {
   return 1
 }
 
-loads() { grep -c "Loaded plugin '$WASM'" "$(zellij_log)" 2>/dev/null || echo 0; }
+loads_of() { # loads_of <wasm-path> — single normalized integer, 0 on fresh log
+  local n
+  n="$(grep -c "Loaded plugin '$1'" "$(zellij_log)" 2>/dev/null || true)"
+  n="$(printf '%s' "$n" | head -1 | tr -cd '0-9')"
+  echo "${n:-0}"
+}
+loads() { loads_of "$WASM"; }
 
 assert() { # assert <label> <condition-result 0|nonzero>
   if [ "$2" -eq 0 ]; then say "PASS $1"; PASS=$((PASS+1)); else say "FAIL $1"; FAIL=$((FAIL+1)); fi
@@ -70,7 +82,9 @@ cleanup() {
   zellij kill-session "$SES" 2>/dev/null || true
   sleep 1
   zellij delete-session "$SES" --force >/dev/null 2>&1 || true
-  if [ -n "${PERM_BAK:-}" ] && [ -f "$PERM_BAK" ]; then cp "$PERM_BAK" "$PERM_FILE"; fi
+  if [ -n "${PERM_CREATED:-}" ]; then rm -f "$PERM_FILE";
+  elif [ -n "${PERM_BAK:-}" ] && [ -f "$PERM_BAK" ]; then cp "$PERM_BAK" "$PERM_FILE"; fi
+  rm -f "$WASM_S2"
 }
 trap cleanup EXIT
 
@@ -78,11 +92,21 @@ trap cleanup EXIT
 say "building wasm..."
 cargo build --release -p harpoon --target wasm32-wasip1 --manifest-path "$REPO_ROOT/Cargo.toml" >/dev/null
 
+cp "$WASM" "$WASM_S2"
+
 PERM_FILE="$(zellij setup --check 2>/dev/null | sed -n 's/^\[CACHE DIR\]: //p')/permissions.kdl"
-if [ -f "$PERM_FILE" ] && ! grep -qF "\"$WASM\"" "$PERM_FILE"; then
+if [ -f "$PERM_FILE" ]; then
   PERM_BAK="$(mktemp)"; cp "$PERM_FILE" "$PERM_BAK"
-  printf '"%s" {\n    ChangeApplicationState\n    RunCommands\n    ReadApplicationState\n}\n' "$WASM" >> "$PERM_FILE"
+else
+  # Fresh environment: create the file (and dir) so seeding still works;
+  # delete it wholesale during cleanup.
+  mkdir -p "$(dirname "$PERM_FILE")"
+  : > "$PERM_FILE"
+  PERM_CREATED=1
 fi
+for w in "$WASM" "$WASM_S2"; do
+  grep -qF "\"$w\"" "$PERM_FILE" || printf '"%s" {\n    ChangeApplicationState\n    RunCommands\n    ReadApplicationState\n}\n' "$w" >> "$PERM_FILE"
+done
 
 # ── session topology ───────────────────────────────────────────────────────
 # tab1: one pane (origin). tab2: two panes A(left)+B(right); B fullscreened.
@@ -110,12 +134,19 @@ assert "S1 cold-start hidden-target lands fullscreen" "$S1_OK"
 L1="$(loads)"
 assert "S1 was cold (new plugin load occurred)" "$([ "$L1" -gt "$L0" ]; echo $?)"
 
-# ── S2: pipe -> the fullscreened pane itself (A is fullscreen now) ─────────
+# ── S2: COLD pipe -> the fullscreened pane itself (A is fullscreen now) ───
+# Uses the distinct-path wasm copy so the handling instance is cold-started
+# even though S1's instance persists (hide_self) — the cold-cache ×
+# target-is-the-fullscreen-pane quadrant, where the old cached
+# PaneInfo.is_fullscreen guard failed.
 za go-to-tab 1; sleep 1
-pipe_jump "terminal_$A_ID"; sleep 2
+L2C0="$(loads_of "$WASM_S2")"
+pipe_jump_s2 "terminal_$A_ID"; sleep 2
 S2_OK=1
 if fullscreen_showing && scr | grep -q "MARK_A="; then S2_OK=0; fi
-assert "S2 fullscreened-target-itself stays fullscreen" "$S2_OK"
+assert "S2 cold-start fullscreened-target-itself stays fullscreen" "$S2_OK"
+L2C1="$(loads_of "$WASM_S2")"
+assert "S2 was cold (new plugin load of the S2 wasm path)" "$([ "$L2C1" -gt "$L2C0" ]; echo $?)"
 
 # ── S3: warm cross-tab pipe (persistent instance, zero new loads) ──────────
 za go-to-tab 1; sleep 1

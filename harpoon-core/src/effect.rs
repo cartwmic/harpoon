@@ -34,6 +34,13 @@ pub enum Effect {
     /// focus_terminal_pane` ordering (so the explicit focus is the last
     /// focus-affecting action).
     FocusPane(u32),
+    /// Enter fullscreen on the terminal pane with this id. Shim calls
+    /// `toggle_pane_id_fullscreen(PaneId::Terminal(id))`. Emitted ONLY by the
+    /// post-focus ground-truth plan ([`crate::post_focus_fullscreen_plan`])
+    /// when the target's tab is provably tiled at decision time — from tiled,
+    /// zellij's toggle can only ENTER fullscreen, so the effect is
+    /// directionally safe by construction (Constitution IV).
+    ToggleFullscreenPane(u32),
     /// Persist `bookmarks` to disk via `save_if_changed()`. Shim no-ops if the
     /// canonical shape hasn't changed.
     Save,
