@@ -45,7 +45,7 @@ pub use jump::handle_jump_key;
 pub use matcher::{FuzzyMatcher, MatchResult, Matcher, MatcherImpl, SubstringMatcher};
 pub use mode::Mode;
 pub use pane::Pane;
-pub use pipe_api::{parse_pane_id, slot_for_pane};
+pub use pipe_api::{parse_pane_id, post_focus_fullscreen_toggle, slot_for_pane, FullscreenGroundTruth};
 pub use render::{
     build_header, build_hint_line, build_row_entries, build_rows, compute_layout_budget,
     HeaderLine, HighlightKind, LayoutBudget, RenderHeader, RenderRow, RowEntry,

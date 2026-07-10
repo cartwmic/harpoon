@@ -14,7 +14,7 @@
 
 ## 2. Ground-truth fullscreen normalization
 
-- [ ] 2.1 Move the toggle decision into `harpoon-core` (Constitution I): a pure
+- [x] 2.1 Move the toggle decision into `harpoon-core` (Constitution I): a pure
       decision function that takes ground-truth tab-fullscreen state + target
       pane id and returns the toggle/focus effect sequence. Native tests cite
       AC IDs `pane-pipe-api.jump-to-pane-by-id` and

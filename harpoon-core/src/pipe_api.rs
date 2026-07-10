@@ -47,6 +47,47 @@ pub fn slot_for_pane(store: &BookmarkStore, id: u32) -> Option<u16> {
     bookmark.index.map(|i| i + 1)
 }
 
+/// Ground truth about the target pane's tab fullscreen state, queried from
+/// the host AFTER the target pane has been focused.
+///
+/// Constructed by the shim from a synchronous post-focus host query
+/// (`get_focused_pane_info` → `get_tab_info().is_fullscreen_active`), never
+/// from event-cached `TabInfo`/`PaneInfo` snapshots — caches are `None` on a
+/// cold pipe-spawned instance and predictions of focus side effects diverge
+/// by layout.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FullscreenGroundTruth {
+    /// The tab is fullscreen. Since the target was just focused, the target
+    /// IS the fullscreen pane — the jump is already in its goal state.
+    Fullscreen,
+    /// The tab is provably tiled; an enter-toggle is required (a toggle from
+    /// tiled state always ENTERS fullscreen — verified zellij 0.44.3 server
+    /// semantics).
+    Tiled,
+    /// Ground truth could not be established (query failed, pane/tab gone).
+    Unknown,
+}
+
+/// Post-focus fullscreen toggle decision for the jump path.
+///
+/// Returns `true` when the shim SHALL issue `toggle_pane_id_fullscreen` on
+/// the (already focused) target, `false` otherwise:
+///
+/// - `Fullscreen` → `false`: goal state already holds; a toggle would EXIT
+///   fullscreen (the historical bug).
+/// - `Tiled` → `true`: the only state needing a toggle; from tiled it can
+///   only enter fullscreen, so the wrong direction is structurally
+///   impossible.
+/// - `Unknown` → `false`: never toggle from unknown state — zellij has no
+///   absolute set-fullscreen, so a blind toggle is wrong half the time
+///   (Constitution IV; domain invariant 1).
+///
+/// AC: `pane-pipe-api.ground-truth-fullscreen-normalization`.
+/// AC: `pane-pipe-api.jump-to-pane-by-id`.
+pub fn post_focus_fullscreen_toggle(truth: FullscreenGroundTruth) -> bool {
+    matches!(truth, FullscreenGroundTruth::Tiled)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -161,5 +202,31 @@ mod tests {
         assert_eq!(store.bookmarks, before.bookmarks);
         assert_eq!(store.pane_id_to_bookmark_idx, before.pane_id_to_bookmark_idx);
         assert_eq!(store.frozen, before.frozen);
+    }
+
+    // AC: pane-pipe-api.jump-to-pane-by-id — post-focus normalization leaves
+    // the target fullscreen in every quadrant reachable at decision time.
+    #[test]
+    fn fullscreen_tab_needs_no_toggle() {
+        // Target was just focused; tab fullscreen => target IS the fullscreen
+        // pane. A toggle here would exit fullscreen (the historical bug).
+        assert!(!post_focus_fullscreen_toggle(
+            FullscreenGroundTruth::Fullscreen
+        ));
+    }
+
+    #[test]
+    fn tiled_tab_gets_enter_toggle() {
+        // AC: pane-pipe-api.jump-to-pane-by-id
+        assert!(post_focus_fullscreen_toggle(FullscreenGroundTruth::Tiled));
+    }
+
+    // AC: pane-pipe-api.ground-truth-fullscreen-normalization — never toggle
+    // from unknown state (no absolute set-fullscreen exists in zellij).
+    #[test]
+    fn unknown_state_never_toggles() {
+        assert!(!post_focus_fullscreen_toggle(
+            FullscreenGroundTruth::Unknown
+        ));
     }
 }
