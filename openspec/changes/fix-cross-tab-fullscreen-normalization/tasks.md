@@ -46,7 +46,7 @@
 
 ## 3. Regression harness (committed, repeatable)
 
-- [ ] 3.1 Commit the tmux-hosted isolated-zellij spike harness as
+- [x] 3.1 Commit the tmux-hosted isolated-zellij spike harness as
       `scripts/fullscreen-regression.sh`: builds the wasm, seeds plugin
       permissions (with backup/restore), and drives the four mandatory
       scenarios from intent.md — (1) cold-start pipe → hidden pane of
@@ -57,7 +57,7 @@
   - files_allowed:
       - scripts/**
   - allow_new_files: true
-- [ ] 3.2 Run the harness against the built wasm; record pass/fail evidence
+- [x] 3.2 Run the harness against the built wasm; record pass/fail evidence
       per scenario in review.md Execution Notes (evidence lines cite the
       scenario numbers).
   - intent: fix
