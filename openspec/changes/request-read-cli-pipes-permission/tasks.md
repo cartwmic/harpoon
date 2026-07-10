@@ -13,7 +13,7 @@
 
 ## 2. Regression scenario (validation source)
 
-- [ ] 2.1 Author `scripts/cli-pipe-permission-regression.sh` (tmux-hosted
+- [x] 2.1 Author `scripts/cli-pipe-permission-regression.sh` (tmux-hosted
   harness; precedent `scripts/fullscreen-regression.sh`) asserting, against a
   freshly built harpoon.wasm in a scripted zellij session with the permission
   granted: (a) a CLI `jump_pane` pipe client exits promptly — no hang, no
@@ -23,7 +23,7 @@
   - intent: feature
   - files_allowed:
       - scripts/cli-pipe-permission-regression.sh
-- [ ] 2.2 Run `scripts/cli-pipe-permission-regression.sh`; record the pass in
+- [x] 2.2 Run `scripts/cli-pipe-permission-regression.sh`; record the pass in
   the change's Execution Notes. This is the agent-independent validation
   source (`validation_source_mode: required`); native `harpoon-core` tests
   cannot cover host permission behavior.
