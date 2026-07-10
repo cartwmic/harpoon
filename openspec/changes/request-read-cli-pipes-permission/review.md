@@ -37,9 +37,9 @@ doneness_mode: required
 
 ## Diff Base + Worktree locator
 
-**Diff Base SHA:** <empty until apply captures it>
-**Worktree Path:** <empty until apply captures it>
-**Integration Branch:** <detected-at-capture>
+**Diff Base SHA:** 4bb20ed7d34b74ac2e11690410a8e48a191d01fa
+**Worktree Path:** /Volumes/Workshop/git/harpoon--opsx-request-read-cli-pipes-permission
+**Integration Branch:** main
 
 ## Manual Adjustments
 
@@ -51,6 +51,8 @@ doneness_mode: required
 
 - 2026-07-10 — review.md authored by openspec-loop (earliest GATE-FAIL:
   review.md absent / Scale unparseable).
+- 2026-07-10 — worktree ensured (`opsx worktree ensure`); locator captured
+  (Diff Base 4bb20ed, branch opsx/request-read-cli-pipes-permission).
 
 ## Scope Expansions
 
