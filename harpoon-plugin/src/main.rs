@@ -72,6 +72,9 @@ impl ZellijPlugin for State {
             PermissionType::RunCommands,
             PermissionType::ReadApplicationState,
             PermissionType::ChangeApplicationState,
+            // pane-pipe-api.host-call-permission-completeness: required for
+            // unblock_cli_pipe_input / cli_pipe_output host calls.
+            PermissionType::ReadCliPipes,
         ]);
         subscribe(&[
             EventType::Key,

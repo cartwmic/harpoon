@@ -1,6 +1,6 @@
 ## 1. Permission request fix
 
-- [ ] 1.1 Add `PermissionType::ReadCliPipes` to the `request_permission` call
+- [x] 1.1 Add `PermissionType::ReadCliPipes` to the `request_permission` call
   in `load()` (`harpoon-plugin/src/main.rs`), keeping the existing three
   permissions. Extend `PermissionRequestResult` handling ONLY if verification
   (task 2.x) demands it.
@@ -8,7 +8,7 @@
   - files_allowed:
       - harpoon-plugin/src/main.rs
   - allow_new_files: false
-- [ ] 1.2 Build for the only supported target (Constitution III) and confirm
+- [x] 1.2 Build for the only supported target (Constitution III) and confirm
   clean compile: `cargo build --target wasm32-wasip1 --release`.
 
 ## 2. Regression scenario (validation source)
