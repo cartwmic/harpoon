@@ -173,6 +173,13 @@ impl ZellijPlugin for State {
             }
             _ => {}
         }
+        // Always release the CLI client, exactly once, whatever the arm above
+        // did (incl. the unrecognized-name no-op). The host's implicit release
+        // proved racy on long-lived servers (2026-07-09 diagnosis: identical
+        // back-to-back jump_pane pipes exited 0 then hung 124), stranding one
+        // zombie `zellij pipe` process per ntfy tap.
+        // AC: pane-pipe-api.cli-pipe-client-release
+        unblock_cli_pipe_input(&pipe_message.name);
         // No re-render: neither handler changes plugin-visible UI state.
         false
     }

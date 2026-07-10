@@ -127,7 +127,8 @@ za go-to-tab 1; sleep 1
 
 # ── S1: cold-start pipe -> hidden pane (A) of fullscreen tab2 ─────────────
 L0="$(loads)"
-pipe_jump "terminal_$A_ID"; sleep 2
+pipe_jump "terminal_$A_ID" && RC1=0 || RC1=$?; sleep 2
+assert "S1 pipe client released (exit 0, no zombie)" "$RC1"
 S1_OK=1
 if fullscreen_showing && scr | grep -q "MARK_A="; then S1_OK=0; fi
 assert "S1 cold-start hidden-target lands fullscreen" "$S1_OK"
@@ -141,7 +142,8 @@ assert "S1 was cold (new plugin load occurred)" "$([ "$L1" -gt "$L0" ]; echo $?)
 # PaneInfo.is_fullscreen guard failed.
 za go-to-tab 1; sleep 1
 L2C0="$(loads_of "$WASM_S2")"
-pipe_jump_s2 "terminal_$A_ID"; sleep 2
+pipe_jump_s2 "terminal_$A_ID" && RC2=0 || RC2=$?; sleep 2
+assert "S2 pipe client released (exit 0, no zombie)" "$RC2"
 S2_OK=1
 if fullscreen_showing && scr | grep -q "MARK_A="; then S2_OK=0; fi
 assert "S2 cold-start fullscreened-target-itself stays fullscreen" "$S2_OK"
@@ -151,7 +153,8 @@ assert "S2 was cold (new plugin load of the S2 wasm path)" "$([ "$L2C1" -gt "$L2
 # ── S3: warm cross-tab pipe (persistent instance, zero new loads) ──────────
 za go-to-tab 1; sleep 1
 L2="$(loads)"
-pipe_jump "terminal_$B_ID"; sleep 2
+pipe_jump "terminal_$B_ID" && RC3=0 || RC3=$?; sleep 2
+assert "S3 pipe client released (exit 0, no zombie)" "$RC3"
 S3_OK=1
 if fullscreen_showing && scr | grep -q "MARK_B="; then S3_OK=0; fi
 assert "S3 warm cross-tab lands fullscreen" "$S3_OK"
@@ -165,11 +168,23 @@ LAUNCH=(launch-or-focus-plugin --floating --move-to-focused-tab
 za "${LAUNCH[@]}"; sleep 2
 L4="$(loads)"
 S4_OK=0
+# settle() tolerates render latency under load: poll up to 4s for the
+# expected visibility state before judging. The quirk being detected is a
+# deterministic wrong-focus defect, not a race — waiting longer never masks it.
+settle() { # settle <want-visible 0|1>
+  local want="$1" t
+  for t in 1 2 3 4 5 6 7 8; do
+    local vis=0; scr | grep -q 'harpoon ─' && vis=1
+    [ "$vis" -eq "$want" ] && return 0
+    sleep 0.5
+  done
+  return 1
+}
 for i in 1 2 3 4 5; do
-  za write 27; sleep 1                       # Esc -> hide (proves plugin had focus)
-  if scr | grep -q 'harpoon ─'; then S4_OK=1; break; fi
-  za "${LAUNCH[@]}"; sleep 1                 # relaunch -> must re-show
-  if ! scr | grep -q 'harpoon ─'; then S4_OK=1; break; fi
+  za write 27                                # Esc -> hide (proves plugin had focus)
+  if ! settle 0; then S4_OK=1; break; fi
+  za "${LAUNCH[@]}"                          # relaunch -> must re-show
+  if ! settle 1; then S4_OK=1; break; fi
 done
 assert "S4 hide/relaunch x5 re-shows with focus (quirk dead)" "$S4_OK"
 L5="$(loads)"
