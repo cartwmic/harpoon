@@ -78,7 +78,7 @@
 
 ## 5. Verification
 
-- [ ] 5.1 All gates green in the worktree: `openspec validate --changes
+- [x] 5.1 All gates green in the worktree: `openspec validate --changes
       --strict`, `cargo build --release -p harpoon --target wasm32-wasip1`,
       `cargo test -p harpoon-core`. AC-citing tests present for the three
       delta AC IDs (grep-verifiable literals).
