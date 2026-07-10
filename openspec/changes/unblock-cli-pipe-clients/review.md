@@ -35,9 +35,9 @@ doneness_mode: required
 
 ## Diff Base + Worktree locator
 
-**Diff Base SHA:** <empty until apply captures it>
-**Worktree Path:** <empty until apply captures it>
-**Integration Branch:** <detected-at-capture>
+**Diff Base SHA:** ea7a5fcd34b0240422f303b2d280978725d052bc
+**Worktree Path:** /Volumes/Workshop/git/harpoon-opsx-unblock-cli-pipe-clients
+**Integration Branch:** main
 
 ## Manual Adjustments
 
