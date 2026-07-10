@@ -13,6 +13,8 @@ loop_max_iterations: 20
 validation_source_mode: required
 spec_level: spec-anchored
 doneness_mode: required
+loop_hold: true
+loop_hold_reason: "gate green at worktree 42471de — ready-to-archive report presented; awaiting human archive authorization"
 ---
 
 # Review
@@ -58,6 +60,9 @@ doneness_mode: required
   client rc=0 and emitted slot output; ReadCliPipes-denied log count
   unchanged 26→26). Permission seeding in-script noted as scriptability
   stand-in for the visible-pane regrant (documented in task 3.1).
+- 2026-07-10 — task 3.1: README "Permissions & runtime activation" section
+  added. GATE-PASS (S) at worktree HEAD 42471de44b1164b4ad9264711000d6063644b152;
+  loop_hold set — awaiting human archive authorization. Worktree preserved.
 
 ## Scope Expansions
 
