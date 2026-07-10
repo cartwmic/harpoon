@@ -67,7 +67,7 @@
 
 ## 4. Documentation
 
-- [ ] 4.1 README: pipe invocation examples use explicit `--plugin` (and note
+- [x] 4.1 README: pipe invocation examples use explicit `--plugin` (and note
       `--plugin-configuration` instance-matching); document the broadcast
       double-toggle hazard (AC `pane-pipe-api.targeted-pipe-delivery`); state
       the zellij 0.44.3 runtime floor.

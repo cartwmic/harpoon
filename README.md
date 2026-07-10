@@ -177,6 +177,38 @@ starts with empty bookmarks. The v2 file is left untouched. Recommended:
 back up the persistence directory before installing v1
 (`cp -r ~/.local/share/zellij-harpoon{,.v2-backup}`).
 
+## CLI pipe API
+
+External processes can drive harpoon over `zellij pipe`:
+
+- `jump_pane` — focus a terminal pane by id and leave it fullscreen. Accepts
+  `terminal_N` (the `$ZELLIJ_PANE_ID` form) or bare `N`. Correct in plain and
+  stacked fullscreen layouts, same-tab and cross-tab, warm or cold plugin
+  instance.
+- `slot_for_pane` — reverse lookup: prints the 1-based slot currently holding
+  a pane id.
+
+Always target the pipe at the plugin explicitly:
+
+```sh
+zellij pipe --name jump_pane \
+  --plugin "file:$HOME/.config/zellij/plugins/harpoon.wasm" \
+  -- "$ZELLIJ_PANE_ID"
+```
+
+Zellij treats the same plugin with a different configuration as a different
+pipe destination. If you also launch harpoon from a keybind with
+`LaunchOrFocusPlugin { ... }` configuration, add a matching
+`--plugin-configuration "default_mode=command,matcher=fuzzy,show_slots=true"`
+to reach that warm instance instead of spawning a configless twin (the twin
+works too — it persists and is reused after its first pipe — matching just
+saves the one-time load).
+
+**Never use a broadcast pipe** (omitting `--plugin`) for `jump_pane`: zellij
+delivers broadcasts to every running plugin instance, and two harpoon
+instances would each run fullscreen normalization — the toggles can cancel
+each other.
+
 ## Why?
 
 In a sentence: quickly access your most-used panes, type-narrow when the
@@ -190,7 +222,9 @@ list grows, jump by slot when you've memorized positions.
 
 ## Installation
 
-**Requires Zellij `0.40.0` or newer.**
+**Requires Zellij `0.44.3` or newer** (the plugin uses the synchronous state
+queries introduced there — `get_focused_pane_info` / `get_tab_info` — for
+ground-truth fullscreen normalization on jumps).
 
 You'll need `wasm32-wasip1` as a Rust target:
 
@@ -243,8 +277,13 @@ Architectural decisions and the full design history live in
 
 ## Known issues
 
-- macOS: `hide_self()` followed by `focus_terminal_pane(id)` has a focus bug
-  with hidden panes. Carried forward from upstream; primary user runs Linux.
+- (resolved on the `0.44.3` floor) macOS: `hide_self()` followed by
+  `focus_terminal_pane(id)` used to mis-focus a terminal pane instead of
+  re-showing the hidden plugin; harpoon temporarily worked around it with
+  `close_self()` (commit d6a2039). The quirk does not reproduce on zellij
+  0.44.3 (verified 2026-07-09: 10/10 hide/relaunch cycles under the trigger
+  condition), so the plugin is persistent again — `scripts/fullscreen-regression.sh`
+  scenario S4 guards against regression.
 
 ## Contributing
 
