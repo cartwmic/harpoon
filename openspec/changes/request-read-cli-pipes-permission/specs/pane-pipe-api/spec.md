@@ -4,8 +4,6 @@
 
 ### Requirement: Host Call Permission Completeness
 
-<!-- AC ID: pane-pipe-api.host-call-permission-completeness -->
-
 THE plugin SHALL request, at load, every `PermissionType` required by a host
 call it invokes — including `ReadCliPipes`, which zellij requires for
 `unblock_cli_pipe_input` and `cli_pipe_output` — so that no host call the
