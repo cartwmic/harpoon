@@ -41,13 +41,13 @@ frozen baseline is `intent.md` (commit ad1963c).
 
 - `pane-pipe-api`: "Jump To Pane By Id" — outcome guarantee restated over
   ground-truth normalization; scenarios extended to cross-tab and cold-start
-  (empty cache) delivery; broadcast-pipe prohibition documented.
-- `mode-state-machine`: close path re-anchored on `hide_self()` as the code
-  rejoins the existing mandate; zellij 0.44.3 runtime floor noted.
-- `plugin-config`: instance-persistence prose re-confirmed (config read only
-  in `load()`, instance survives `hide_self`); 0.44.3 floor noted.
-- `jump-mode`: jump close-path wording re-confirmed against `hide_self`
-  (no behavioral requirement change; drift note only).
+  (empty cache) delivery. ADDED: ground-truth normalization requirement and
+  targeted-pipe-delivery (broadcast prohibition) requirement.
+
+No delta specs for `mode-state-machine`, `plugin-config`, `jump-mode`: those
+specs already mandate `hide_self()` and instance survival — the drift is
+code-side (commit d6a2039), so the d6a2039 revert makes the code rejoin the
+existing requirements without any spec-level behavior change.
 
 ## Impact
 
