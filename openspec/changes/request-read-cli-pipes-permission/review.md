@@ -53,6 +53,11 @@ doneness_mode: required
   review.md absent / Scale unparseable).
 - 2026-07-10 — worktree ensured (`opsx worktree ensure`); locator captured
   (Diff Base 4bb20ed, branch opsx/request-read-cli-pipes-permission).
+- 2026-07-10 — task 2.2: `scripts/cli-pipe-permission-regression.sh` run in
+  worktree — 3/3 PASS (jump_pane client rc=0 prompt exit; slot_for_pane
+  client rc=0 and emitted slot output; ReadCliPipes-denied log count
+  unchanged 26→26). Permission seeding in-script noted as scriptability
+  stand-in for the visible-pane regrant (documented in task 3.1).
 
 ## Scope Expansions
 
