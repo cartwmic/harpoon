@@ -65,6 +65,13 @@ doneness_mode: required
 - 2026-07-09 — assumption recorded: local zellij exports $ZELLIJ_PANE_ID as
   bare N (not terminal_N); harness accepts both forms, mirroring
   parse_pane_id.
+- 2026-07-09 — round-1 blind review (gpt-5.6-sol + fable-5, both fail):
+  0 P0 / 4 P1 consolidated; fixes landed at worktree 1303cee (core effect
+  plan, cold S2 via distinct-path wasm identity, loads() normalization,
+  fresh-env permission seeding, evidence into tasks.md). Post-fix harness:
+  8/8 assertions PASS × 2 consecutive runs (S1 cold hidden-target, S2 COLD
+  fullscreened-target-itself, S3 warm cross-tab zero-load, S4 quirk
+  detector zero-load). Advisories routed to follow-ups.md.
 
 ## Scope Expansions
 
