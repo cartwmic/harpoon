@@ -54,6 +54,17 @@ doneness_mode: required
   (authored: in-session).
 - 2026-07-09 — worktree created (branch opsx/fix-cross-tab-fullscreen-normalization
   from main @ 096734e); locator captured.
+- 2026-07-09 — T3.2 regression evidence: scripts/fullscreen-regression.sh run
+  twice consecutively at worktree 5f35569, 7/7 assertions PASS both runs —
+  S1 cold-start hidden-target lands fullscreen (+ new-load proof of coldness);
+  S2 fullscreened-target-itself stays fullscreen; S3 warm cross-tab lands
+  fullscreen (+ zero-new-load proof of instance persistence); S4 5×
+  hide/relaunch under fullscreen terminal re-shows focused with zero new
+  loads (quirk detector). One earlier run had a transient S1 timing flake
+  before marker-format fix; post-fix runs stable.
+- 2026-07-09 — assumption recorded: local zellij exports $ZELLIJ_PANE_ID as
+  bare N (not terminal_N); harness accepts both forms, mirroring
+  parse_pane_id.
 
 ## Scope Expansions
 
