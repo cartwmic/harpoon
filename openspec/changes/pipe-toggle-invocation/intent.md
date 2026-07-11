@@ -129,6 +129,11 @@ pipes, collapsing the `--plugin-configuration`-must-match foot-gun.
 
 ## Invariants honored
 
+- Constitution I (core/shim split is sacred): toggle branch selection
+  (visible/hidden-same-tab/hidden-cross-tab/cold) is pure decision logic
+  and lands in `harpoon-core` with native tests; only the host calls
+  (`hide_self`, `show_self`, `break_panes_to_tab_with_index`,
+  subscriptions) live in the plugin shim.
 - Constitution II (specs are the source of behavior): the toggle pipe
   lands as a `pane-pipe-api` requirement alongside the code.
 - Constitution III (wasm32-wasip1 is the only build target).
