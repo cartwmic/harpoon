@@ -69,6 +69,35 @@ non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -
   `get_tab_info(id).position` before any position-based host call; and
   tab-side `get_pane_info` hardcodes `is_focused=false` (never use it for
   focus decisions).
+- 2026-07-11 20:35 — Task 4.1+4.2 regression `scripts/toggle-pipe-regression.sh`
+  6/6 PASS (worktree commit bf0453e; scenarios: cold-spawn show on invoking
+  tab, visible-focused toggle hides, same-tab re-invoke after Esc-close,
+  cross-tab invoke under forced tab-id/position drift lands menu+view on
+  invoking tab). Native suite 244 green; wasm32-wasip1 clean.
+  Implementation discoveries en route: keybind `MessagePlugin` WITHOUT
+  `floating true` cold-spawns a TILED split (README warns); zellij's "About
+  Zellij" tip pane (Plugin id 3 on fresh sessions) holds focus at first
+  invoke — exposed the need for focused-pane identity in ground truth;
+  cold-spawn pipe precedes host-side pane registration, fixed via
+  `ToggleAction::ColdShow` + bounded `set_timeout(0.2)`×25 retry
+  (suppressed panes receive no state events, so the retry rides
+  `Event::Timer`).
+- 2026-07-11 20:35 — R1 (cross-tab show-then-relocate flicker) evidence:
+  the two host calls execute within a single pipe-handler invocation;
+  scripted screen captures at settle time show only the final state (menu on
+  invoking tab) — no artifact observable in captures. Live human
+  observation deferred to runtime activation step 4 (README) with the
+  frozen escalation trigger (worse than brief single-frame → report)
+  restated there.
+- 2026-07-11 21:20 — Code-review round 1 (blind, 2 models) consolidated:
+  P0=0 P1=3 P2=3 P3=1, both verdicts fail. Dispatch adapter reported both
+  child runs as failed (bash exit 1) yet BOTH findings files were complete
+  with valid attestations (HEAD a8a1c25e, worktree path) — counted per
+  findings-file-sole-verdict; incident noted. Dominant P1 root: judged
+  inputs (amended spec delta, Scope Expansions) were committed
+  integration-side AFTER the worktree branched, so the attested tree
+  carried stale copies — remedied by merging integration main into the
+  worktree branch before round 2.
 
 ## Scope Expansions
 
@@ -87,6 +116,19 @@ surfaced at the decision-audit landing or gate-green. -->
   user-observable outcome) unchanged; intent.md untouched. Spec delta
   requirement renamed accordingly (`toggle-state-sync-query-verified`).
   Evidence: Execution Notes 2026-07-11; `scripts/toggle-pipe-probe.sh`.
+- 2026-07-11 — "Visible → hide" branch REFINED to "visible AND focused →
+  hide; unfocused container state → bring to user": synchronous queries
+  cannot distinguish a pipe-cold-spawned pane (parked floating, unfocused,
+  invisible) from a user-visible unfocused pane (`get_pane_info` hardcodes
+  `is_focused=false`; no layer-visibility query exists), and hiding the
+  parked pane made the first invocation a visible no-op (regression run
+  2026-07-11). In zellij's focus semantics the visible-but-unfocused
+  floating state is effectively unreachable (showing focuses; focusing
+  elsewhere hides the layer), and the degradation is benign (refocus, next
+  toggle hides). Required to meet the frozen intent's user-observable
+  outcome (invoke SHALL present the menu — branch 4/cold-spawn). Intent
+  MEANING (toggle closes the open menu) unchanged; intent.md untouched.
+  Delta spec scenarios amended accordingly (round-1 findings sol#2/fable#2).
 
 ## Fidelity Round Ledger
 

@@ -45,11 +45,24 @@ I core/shim split); only the host calls live in the plugin shim.
 - **THEN** the menu and the client view SHALL end on the invoking tab (never
   on a tab addressed by a stale tab id)
 
-#### Scenario: visible toggle hides
-- **GIVEN** the plugin is visible
+#### Scenario: visible focused toggle hides
+- **GIVEN** the plugin is visible AND is the client's focused pane (the
+  reachable "open in front of the user" state — showing a floating plugin
+  focuses it, and focusing elsewhere hides the floating layer)
 - **WHEN** a `toggle` pipe message arrives
 - **THEN** the plugin SHALL hide itself (`hide_self()`), preserving the
   mode-state-machine Close consolidation behavior
+
+#### Scenario: unfocused container state is shown, not hidden
+- **GIVEN** the plugin's pane is in a tiled/floating container
+  (unsuppressed) but is NOT the client's focused pane — e.g. a
+  pipe-cold-spawned pane parked floating and unfocused (evidence
+  2026-07-11: such a pane is indistinguishable from a user-visible one via
+  synchronous queries, and hiding it made the first invocation a visible
+  no-op)
+- **WHEN** a `toggle` pipe message arrives
+- **THEN** the plugin SHALL bring its pane to the user (show + focus +
+  relocate to the invoking tab), never hide it
 
 #### Scenario: cold spawn shows without cached event state
 - **GIVEN** the plugin is not loaded and the `toggle` pipe message spawns it
