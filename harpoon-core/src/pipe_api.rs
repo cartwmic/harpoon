@@ -118,11 +118,12 @@ pub struct ToggleGroundTruth {
     /// cannot distinguish a parked pane from a shown one. `None` when the
     /// query fails.
     pub own_is_focused: Option<bool>,
-    /// The invoking client's focused tab POSITION at pipe time:
-    /// `get_focused_pane_info()` (returns the STABLE TAB ID — zellij
-    /// `active_tab_ids`) converted via `get_tab_info(id).position`. `None`
-    /// when either query fails (cold spawn tolerance).
-    pub focused_tab_position: Option<usize>,
+    /// Whether the pane is parked on the client's currently focused tab:
+    /// the sync-recorded parked tab id (captured via `get_focused_pane_info`
+    /// at load and at every hide — the moments parking changes; never from
+    /// event caches) compared against the sync-queried focused tab id at
+    /// pipe time. `None` when either side is unknown.
+    pub parked_on_focused_tab: Option<bool>,
 }
 
 /// The single host-effect plan a `toggle` pipe message resolves to
@@ -132,10 +133,19 @@ pub enum ToggleAction {
     /// Visible → hide. Shim calls `hide_self()` + the close-helper (mode
     /// reset), preserving mode-state-machine Close consolidation semantics.
     Hide,
-    /// Hidden with NO reliable relocation target → show where the pane
-    /// lives. Shim calls `show_self(true)` — the position-correct
+    /// Hidden (or parked) on the client's active tab → warm show where the
+    /// pane lives. Shim calls `show_self(true)` — the position-correct
     /// `focus_pane_with_id` host path, safe without any cached state.
     ShowInPlace,
+    /// Hidden/parked on ANOTHER (or unknown) tab → respawn on the invoking
+    /// tab: shim opens a fresh instance of itself floating in the active
+    /// tab (`open_plugin_pane_floating(own_url, own_configuration)` — a
+    /// new-pane host action) and then closes this instance (`close_self`).
+    /// Pane relocation via `break_panes_to_tab_with_index` is FORBIDDEN —
+    /// under tab-id/position drift that call destroys the pane (upstream
+    /// defect #3, regression S5 evidence 2026-07-11). Owner-ruled mechanism
+    /// (decision-audit landing 2026-07-11).
+    Respawn,
     /// Own-pane query returned nothing — the cold-spawn window: a
     /// pipe-spawned plugin receives the pipe BEFORE its pane registers
     /// host-side (regression run 2026-07-11: the immediate `show_self`
@@ -144,19 +154,6 @@ pub enum ToggleAction {
     /// resolves at the next event arrival with FRESH sync queries — never
     /// cached event content (Constitution IV).
     ColdShow,
-    /// Hidden with a known invoking-tab position → un-suppress FIRST, then
-    /// relocate. Shim calls `show_self(true)` and THEN
-    /// `break_panes_to_tab_with_index([own], target, true)` — mandatory
-    /// ordering: the relocation host call cannot extract suppressed panes
-    /// (`extract_pane(_, dont_swap_if_suppressed=true)` returns `None` for
-    /// them — the zellij defect-#2 shape). Same-tab invokes collapse into
-    /// this arm harmlessly: the break host call skips extraction when the
-    /// pane already sits on the target tab and its `go_to_tab(target)` is a
-    /// no-op on the already-active tab.
-    ShowThenRelocate {
-        /// Target tab POSITION (0-based display order), never a stable id.
-        target_tab_position: usize,
-    },
 }
 
 /// Pure branch selection for a `toggle` pipe message (Constitution I: the
@@ -168,26 +165,22 @@ pub fn toggle_plan(truth: ToggleGroundTruth) -> ToggleAction {
     match (
         truth.own_suppressed,
         truth.own_is_focused,
-        truth.focused_tab_position,
+        truth.parked_on_focused_tab,
     ) {
         // Open in front of the user (focused) → hide.
         (Some(false), Some(true), _) => ToggleAction::Hide,
         // In a container but NOT focused — a parked cold-spawn, a hidden
-        // floating layer, or focus wandered off — → bring it to the user
-        // (show_self focuses + shows the floating layer; the relocation
-        // no-ops when it already sits on the target tab).
-        (Some(false), _, Some(target_tab_position)) => ToggleAction::ShowThenRelocate {
-            target_tab_position,
-        },
-        (Some(false), _, None) => ToggleAction::ShowInPlace,
-        // Hidden (suppressed) with a verified invoking tab → un-suppress,
-        // then relocate to it.
-        (Some(true), _, Some(target_tab_position)) => ToggleAction::ShowThenRelocate {
-            target_tab_position,
-        },
-        // Hidden but the focused-tab query failed → show where we live
-        // rather than relocating on a guess (Constitution IV).
-        (Some(true), _, None) => ToggleAction::ShowInPlace,
+        // floating layer, or focus wandered off. On the active tab → warm
+        // show/refocus in place; elsewhere or unknown → respawn here.
+        (Some(false), _, Some(true)) => ToggleAction::ShowInPlace,
+        (Some(false), _, _) => ToggleAction::Respawn,
+        // Hidden (suppressed) on the active tab → warm show in place.
+        (Some(true), _, Some(true)) => ToggleAction::ShowInPlace,
+        // Hidden on another (or unknown) tab → respawn on the invoking tab
+        // (never relocate — the break host call destroys the pane under
+        // tab-id/position drift, upstream defect #3; never show-in-place on
+        // a guess — Constitution IV).
+        (Some(true), _, _) => ToggleAction::Respawn,
         // Own-pane query failed — cold spawn window or host error: show
         // immediately (harmless if raced) and arm the shim's pending-show
         // retry for when the pane registers.
@@ -342,21 +335,21 @@ mod tests {
     fn truth(
         own_suppressed: Option<bool>,
         own_is_focused: Option<bool>,
-        focused_tab_position: Option<usize>,
+        parked_on_focused_tab: Option<bool>,
     ) -> ToggleGroundTruth {
         ToggleGroundTruth {
             own_suppressed,
             own_is_focused,
-            focused_tab_position,
+            parked_on_focused_tab,
         }
     }
 
     #[test]
     fn visible_focused_toggles_to_hide() {
         // Branch 1: open in front of the user → hide — whatever the
-        // focused tab reports.
+        // parked-tab comparison reports.
         assert_eq!(
-            toggle_plan(truth(Some(false), Some(true), Some(3))),
+            toggle_plan(truth(Some(false), Some(true), Some(true))),
             ToggleAction::Hide
         );
         assert_eq!(
@@ -370,54 +363,52 @@ mod tests {
         // Regression (2026-07-11 run): a pipe-cold-spawned pane registers
         // floating + unsuppressed + UNFOCUSED (parked, invisible to the
         // user). Toggling must bring it to the user — hiding it made the
-        // first invocation a visible no-op.
+        // first invocation a visible no-op. On the active tab → warm
+        // show/refocus; elsewhere/unknown → respawn on the invoking tab.
         assert_eq!(
-            toggle_plan(truth(Some(false), Some(false), Some(0))),
-            ToggleAction::ShowThenRelocate {
-                target_tab_position: 0
-            }
+            toggle_plan(truth(Some(false), Some(false), Some(true))),
+            ToggleAction::ShowInPlace
+        );
+        assert_eq!(
+            toggle_plan(truth(Some(false), Some(false), Some(false))),
+            ToggleAction::Respawn
         );
         assert_eq!(
             toggle_plan(truth(Some(false), None, None)),
+            ToggleAction::Respawn
+        );
+    }
+
+    #[test]
+    fn hidden_on_active_tab_shows_warm_in_place() {
+        // Branch 2: hidden and parked on the invoking tab → warm
+        // show_self, no respawn cost.
+        assert_eq!(
+            toggle_plan(truth(Some(true), Some(false), Some(true))),
             ToggleAction::ShowInPlace
         );
     }
 
     #[test]
-    fn hidden_with_target_shows_then_relocates() {
-        // Branches 2+3 unified: hidden → show first (un-suppress), then
-        // relocate to the verified invoking tab. Same-tab collapses into a
-        // harmless no-op relocation host-side.
+    fn hidden_cross_tab_respawns_on_invoking_tab() {
+        // Branch 3 (owner-ruled 2026-07-11): hidden on another tab →
+        // respawn fresh on the invoking tab; relocation via
+        // break_panes_to_tab_with_index is FORBIDDEN (upstream defect #3
+        // destroys the pane under tab-id/position drift — S5 evidence).
         assert_eq!(
-            toggle_plan(truth(Some(true), Some(false), Some(1))),
-            ToggleAction::ShowThenRelocate {
-                target_tab_position: 1
-            }
+            toggle_plan(truth(Some(true), Some(false), Some(false))),
+            ToggleAction::Respawn
         );
     }
 
     #[test]
-    fn relocation_target_is_a_position_from_sync_query() {
-        // AC: pane-pipe-api.toggle-state-sync-query-verified — the target the
-        // plan carries is exactly the synchronously queried focused-tab
-        // position; core never substitutes cached or stale values.
-        for pos in [0usize, 1, 5, 41] {
-            assert_eq!(
-                toggle_plan(truth(Some(true), Some(false), Some(pos))),
-                ToggleAction::ShowThenRelocate {
-                    target_tab_position: pos
-                }
-            );
-        }
-    }
-
-    #[test]
-    fn hidden_without_target_shows_in_place() {
-        // Constitution IV: a failed focused-tab query never relocates on a
-        // guess — show where the pane lives instead.
+    fn hidden_with_unknown_parking_respawns_never_guesses() {
+        // Constitution IV: an unknown parked tab never shows in place on a
+        // guess (the pane could surface on an arbitrary tab) — respawning
+        // on the verified invoking tab is the only outcome-preserving move.
         assert_eq!(
             toggle_plan(truth(Some(true), Some(false), None)),
-            ToggleAction::ShowInPlace
+            ToggleAction::Respawn
         );
     }
 
@@ -431,7 +422,7 @@ mod tests {
         // state.
         assert_eq!(toggle_plan(truth(None, None, None)), ToggleAction::ColdShow);
         assert_eq!(
-            toggle_plan(truth(None, Some(false), Some(2))),
+            toggle_plan(truth(None, Some(false), Some(false))),
             ToggleAction::ColdShow
         );
     }

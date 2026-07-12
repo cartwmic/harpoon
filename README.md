@@ -199,9 +199,12 @@ External processes can drive harpoon over `zellij pipe`:
 - `toggle` — show/hide the menu (the keybind's pipe; see
   [Configuration](#configuration)). Source-agnostic: works from a keybind
   `MessagePlugin`, a CLI `zellij pipe`, or plugin-to-plugin. Shows on the
-  invoking tab (relocating the pane cross-tab), hides when already open and
-  focused; all decisions run on synchronous host queries, never cached event
-  state.
+  invoking tab — warm/instant when the hidden pane is already parked there,
+  else by RESPAWNING a fresh instance there (~0.1s) and closing the old one
+  (pane relocation is forbidden: zellij's only pane-to-tab mover destroys
+  the pane under tab-id/position drift). Hides when already open and
+  focused. All decisions run on synchronous host queries, never cached
+  event state.
 
 Always target the pipe at the plugin explicitly:
 
@@ -270,9 +273,12 @@ when invoking from root.)
 ### Permissions & runtime activation
 
 The plugin requests `RunCommands`, `ReadApplicationState`,
-`ChangeApplicationState`, and `ReadCliPipes` (the last gates
-`unblock_cli_pipe_input` / `cli_pipe_output` — without it every CLI pipe
-client hangs as a zombie and `slot_for_pane` produces no output).
+`ChangeApplicationState`, `ReadCliPipes` (gates `unblock_cli_pipe_input` /
+`cli_pipe_output` — without it every CLI pipe client hangs as a zombie and
+`slot_for_pane` produces no output), and `OpenTerminalsOrPlugins` (gates
+`open_plugin_pane_floating` — the toggle's cross-tab respawn; a denied
+response-decoding host call PANICS the plugin, so a missing grant kills the
+instance on the first cross-tab invoke).
 
 After deploying a wasm whose permission set grew (e.g. the `ReadCliPipes`
 addition), the grant must be renewed at runtime:
@@ -304,13 +310,15 @@ config + deploy change (operational — outside this repo's test gate):
    instance identity (and any ntfy `--plugin-configuration`) still matches.
 3. Reload the config (zellij picks up config.kdl changes live) or restart
    the server session.
-4. Verify a warm round-trip: `Ctrl y` shows the menu floating on the current
+4. Answer the `OpenTerminalsOrPlugins` permission prompt in a VISIBLE
+   plugin pane (new grant — same regrant discipline as `ReadCliPipes`
+   above; an unanswered prompt leaves toggles inert and a denied grant
+   panics the instance on cross-tab invokes).
+5. Verify a round-trip: `Ctrl y` shows the menu floating on the current
    tab → `Esc` hides → switch tab → `Ctrl y` again shows it on the NEW tab
-   (menu and view together — the wrong-tab jump is gone). Watch the
-   cross-tab show for visual artifacts: the show-then-relocate pair is two
-   host calls; anything worse than a brief single-frame flicker is worth
-   reporting.
-5. Until the keybind is swapped, invocation still routes through zellij's
+   (menu and view together — the wrong-tab jump is gone; cross-tab invokes
+   respawn fresh in ~0.1s, same-tab re-invokes are instant).
+6. Until the keybind is swapped, invocation still routes through zellij's
    broken `focus_plugin_pane` path — deploying the wasm alone changes
    nothing about the wrong-tab jump.
 

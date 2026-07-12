@@ -65,6 +65,28 @@ struct State {
     pending_cold_show: bool,
     /// Bounded re-arm budget for the cold-show timer (0.2s ticks).
     cold_show_retries: u8,
+
+    /// Verbatim load-time configuration — re-emitted on the respawn branch
+    /// so the fresh instance keeps the same pipe-destination identity
+    /// (URL + configuration) as the invoking keybind.
+    raw_configuration: BTreeMap<String, String>,
+    /// Stable tab ID the pane lives on, recorded ONCE via a sync query at
+    /// load — the only moment parking is established, since without the
+    /// (forbidden) break relocation the pane never changes tab for the
+    /// instance's whole life; a respawned instance records its own. Never
+    /// from event caches (AC pane-pipe-api.toggle-state-sync-query-verified).
+    /// Stale-safe: tab ids are never reused, so if the parked tab closes
+    /// (zellij moves the suppressed pane elsewhere) the id comparison can
+    /// only yield false → the safe Respawn branch.
+    parked_tab_id: Option<usize>,
+    /// Set on `PermissionRequestResult(Granted)`. Response-decoding sync
+    /// queries (`get_pane_info`, `get_focused_pane_info`, `get_tab_info`,
+    /// `open_plugin_pane_floating`) PANIC the plugin when permission-denied
+    /// (the shim unwraps an empty response — observed 2026-07-12: 'PANIC IN
+    /// PLUGIN' after 'GetFocusedPaneInfo denied'), so they are FORBIDDEN
+    /// until this is true. Deny-safe calls (show_self/hide_self/set_timeout)
+    /// decode no response and stay allowed.
+    permissions_granted: bool,
 }
 
 register_plugin!(State);
@@ -74,6 +96,11 @@ register_plugin!(State);
 impl ZellijPlugin for State {
     fn load(&mut self, configuration: BTreeMap<String, String>) {
         // Parse config; init matcher from it. Mode init at default_mode.
+        // NO sync queries here: load() precedes the permission grant, and a
+        // denied response-decoding query panics the plugin (2026-07-12
+        // evidence). parked_tab_id is recorded at the Granted event — the
+        // pane cannot change tab before then (relocation is forbidden).
+        self.raw_configuration = configuration.clone();
         self.config = Config::parse_from_btree(&configuration);
         self.dispatch_state.default_mode = self.config.default_mode;
         self.dispatch_state.mode = self.config.default_mode;
@@ -86,6 +113,10 @@ impl ZellijPlugin for State {
             // pane-pipe-api.host-call-permission-completeness: required for
             // unblock_cli_pipe_input / cli_pipe_output host calls.
             PermissionType::ReadCliPipes,
+            // pane-pipe-api.host-call-permission-completeness: required for
+            // open_plugin_pane_floating (the toggle respawn branch) — denied
+            // response-decoding calls PANIC the plugin (2026-07-12).
+            PermissionType::OpenTerminalsOrPlugins,
         ]);
         subscribe(&[
             EventType::Key,
@@ -121,6 +152,13 @@ impl ZellijPlugin for State {
                 should_render = true;
             }
             Event::PermissionRequestResult(PermissionStatus::Granted) => {
+                self.permissions_granted = true;
+                // Earliest safe moment for response-decoding sync queries:
+                // record the tab this pane parked in (it was spawned into
+                // the then-active tab and cannot have moved since).
+                if let Ok((tab_id, _)) = get_focused_pane_info() {
+                    self.parked_tab_id = Some(tab_id);
+                }
                 let plugin_ids = get_plugin_ids();
                 rename_plugin_pane(plugin_ids.plugin_id, "harpoon");
             }
@@ -580,6 +618,10 @@ impl State {
     /// original trigger condition, one plugin load). This also rejoins the
     /// mode-state-machine spec, which mandates `hide_self()` on this path.
     fn close_helper(&mut self) {
+        // No parked-tab recording needed here: hiding never moves the pane,
+        // so the load-time record stays authoritative. (Also deliberate:
+        // this path runs in Key-event/update context — keep synchronous
+        // host queries out of it.)
         hide_self();
         self.dispatch_state.mode = self.dispatch_state.default_mode;
         self.dispatch_state.query.clear();
@@ -599,6 +641,16 @@ impl State {
     /// AC: pane-pipe-api.toggle-pipe-invocation
     /// AC: pane-pipe-api.toggle-state-sync-query-verified
     fn handle_toggle(&mut self) -> bool {
+        if !self.permissions_granted {
+            // Pre-grant: response-decoding queries would panic the plugin
+            // if denied. Deny-safe attempt + timer retry (the grant event
+            // arrives within moments on a cold spawn).
+            show_self(true);
+            self.pending_cold_show = true;
+            self.cold_show_retries = 25;
+            set_timeout(0.2);
+            return true;
+        }
         let own_id = get_plugin_ids().plugin_id;
         let own_pane_id = zellij_tile::prelude::PaneId::Plugin(own_id);
         // Fresh own-pane state: Some(is_suppressed) or None (query failed /
@@ -606,21 +658,21 @@ impl State {
         // is_suppressed=false does NOT mean user-visible — a cold-spawned
         // pane parks floating+unfocused; the focused-pane identity below is
         // the "open in front of the user" signal.
-        let own_suppressed = get_pane_info(own_pane_id).map(|p| p.is_suppressed);
+        let own_pane = get_pane_info(own_pane_id);
+        let own_suppressed = own_pane.as_ref().map(|p| p.is_suppressed);
         // One sync query serves both: the focused pane identity and the
-        // invoking tab. get_focused_pane_info returns the STABLE TAB ID
-        // (screen active_tab_ids) — convert to a display position via
-        // get_tab_info before any position-based host call.
+        // invoking tab (get_focused_pane_info returns the STABLE TAB ID —
+        // zellij screen active_tab_ids).
         let focused = get_focused_pane_info().ok();
         let own_is_focused = focused.as_ref().map(|(_, pane_id)| *pane_id == own_pane_id);
-        let focused_tab_position = focused
-            .as_ref()
-            .and_then(|(tab_id, _pane)| get_tab_info(*tab_id))
-            .map(|t| t.position);
+        let parked_on_focused_tab = match (focused.as_ref(), self.parked_tab_id) {
+            (Some((focused_tab_id, _)), Some(parked)) => Some(*focused_tab_id == parked),
+            _ => None,
+        };
         match toggle_plan(ToggleGroundTruth {
             own_suppressed,
             own_is_focused,
-            focused_tab_position,
+            parked_on_focused_tab,
         }) {
             ToggleAction::Hide => {
                 // Same canonical close path as Esc (mode-state-machine
@@ -635,26 +687,40 @@ impl State {
                 show_self(true);
                 true
             }
-            ToggleAction::ShowThenRelocate {
-                target_tab_position,
-            } => {
-                // Mandatory ordering: un-suppress FIRST — the relocation
-                // host call cannot extract suppressed panes
-                // (extract_pane(_, dont_swap_if_suppressed=true) → None).
-                // Same-tab collapses into a harmless no-op relocation.
-                show_self(true);
-                break_panes_to_tab_with_index(
-                    &[zellij_tile::prelude::PaneId::Plugin(own_id)],
-                    target_tab_position,
-                    true,
-                );
-                // Re-assert focus: the break relocation does NOT focus the
-                // moved pane (regression S5 evidence 2026-07-11 — an
-                // unfocused menu neither receives keys nor hides on the
-                // next toggle). show_self on the now-relocated pane is a
-                // same-tab focus, no view change.
-                show_self(true);
-                true
+            ToggleAction::Respawn => {
+                // Owner-ruled mechanism (decision-audit 2026-07-11): open a
+                // FRESH instance of ourselves floating on the invoking tab
+                // (a new-pane host action — never the broken
+                // focus/relocation paths; break_panes_to_tab_with_index
+                // DESTROYS the pane under tab-id/position drift, upstream
+                // defect #3), then close this instance. The fresh instance
+                // reuses our verbatim URL + configuration so the keybind's
+                // pipe keeps reaching it.
+                let own_url = own_pane.as_ref().and_then(|p| p.plugin_url.clone());
+                match own_url {
+                    Some(url) => {
+                        let spawned = open_plugin_pane_floating(
+                            &url,
+                            self.raw_configuration.clone(),
+                            None,
+                            BTreeMap::new(),
+                        );
+                        if spawned.is_some() {
+                            close_self();
+                            false
+                        } else {
+                            // Spawn failed — degrade to showing where we
+                            // live rather than dropping the invocation.
+                            show_self(true);
+                            true
+                        }
+                    }
+                    None => {
+                        // No URL available — same safe degradation.
+                        show_self(true);
+                        true
+                    }
+                }
             }
             ToggleAction::ColdShow => {
                 // Cold-spawn window: the pipe can precede host-side pane
@@ -681,6 +747,16 @@ impl State {
         if !self.pending_cold_show {
             return false;
         }
+        if !self.permissions_granted {
+            // Still pre-grant — queries would panic if denied; re-arm.
+            if self.cold_show_retries > 0 {
+                self.cold_show_retries -= 1;
+                set_timeout(0.2);
+            } else {
+                self.pending_cold_show = false;
+            }
+            return false;
+        }
         let own_id = get_plugin_ids().plugin_id;
         let own_pane = get_pane_info(zellij_tile::prelude::PaneId::Plugin(own_id));
         let Some(pane) = own_pane else {
@@ -694,22 +770,13 @@ impl State {
             return false;
         };
         self.pending_cold_show = false;
-        // show_self on an already-visible pane merely re-focuses — harmless
-        // if the initial attempt won the race.
+        let _ = pane;
+        // The cold-spawned pane parked in the tab that was active at spawn
+        // time — the invoking tab; the load-time parked record covers it.
+        // show_self is the position-correct focus path (harmless re-focus
+        // if the initial attempt won the race). No sync queries here: this
+        // runs in Timer/update context.
         show_self(true);
-        if pane.is_suppressed {
-            if let Ok((tab_id, _)) = get_focused_pane_info() {
-                if let Some(tab) = get_tab_info(tab_id) {
-                    break_panes_to_tab_with_index(
-                        &[zellij_tile::prelude::PaneId::Plugin(own_id)],
-                        tab.position,
-                        true,
-                    );
-                    // Post-break focus re-assert (see ShowThenRelocate).
-                    show_self(true);
-                }
-            }
-        }
         true
     }
 }

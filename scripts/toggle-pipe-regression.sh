@@ -91,7 +91,11 @@ if [ -f "$PERM_FILE" ]; then
 else
   mkdir -p "$(dirname "$PERM_FILE")"; : > "$PERM_FILE"; PERM_CREATED=1
 fi
-grep -qF "\"$WASM\"" "$PERM_FILE" || printf '"%s" {\n    ChangeApplicationState\n    RunCommands\n    ReadApplicationState\n    ReadCliPipes\n}\n' "$WASM" >> "$PERM_FILE"
+# Rewrite (never skip) this wasm's entry: a stale block missing a newly
+# required permission makes zellij show an interactive prompt the scripted
+# session can never answer.
+awk -v wasm="$WASM" 'BEGIN{skip=0} $0 == "\"" wasm "\" {" {skip=1; next} skip && /^\}/ {skip=0; next} !skip {print}' "$PERM_FILE" > "$PERM_FILE.tmp" && mv "$PERM_FILE.tmp" "$PERM_FILE"
+printf '"%s" {\n    ChangeApplicationState\n    RunCommands\n    ReadApplicationState\n    ReadCliPipes\n    OpenTerminalsOrPlugins\n}\n' "$WASM" >> "$PERM_FILE"
 
 # ── production-shaped keybind: MessagePlugin toggle pipe on F6 ─────────────
 # BSD mktemp requires trailing Xs (a .kdl suffix template silently creates a
@@ -153,15 +157,25 @@ press F6
 expect_state "S4 cross-tab invoke under id/position drift lands menu+view on T1" T1 T1
 
 # ── S5: invoke FROM the drifted tab — T3's stable id exceeds its position ──
-# Exercises the plugin's own stable-id→position conversion
-# (get_focused_pane_info → get_tab_info(id).position) for a DRIFTED invoking
-# tab, so an id/position confusion in the conversion is actually falsified
-# (S4's T1 has id == position == 0 regardless of churn).
+# The cross-tab branch RESPAWNS a fresh instance on the invoking tab
+# (owner-ruled mechanism; pane relocation is forbidden — the break host
+# call destroys the pane under id/position drift, upstream defect #3).
+# S5 exercises that respawn under drift: menu+view must land on T3 and the
+# old pane on T1 must be gone (a lingering T1 pane would match first in the
+# layout parse and fail this assertion).
 press F6   # hide again (parks on T1)
 expect_state "S5-pre hidden again (parked on T1)" T1 ""
 za go-to-tab-name T3; sleep 1
 press F6
-expect_state "S5 invoke from drifted tab T3 (id>position) lands menu+view on T3" T3 T3
+sleep 2   # respawn = fresh wasm load (~100ms) + bookmark restore
+expect_state "S5 invoke from drifted tab T3 (id>position) respawns menu+view on T3" T3 T3
+
+# ── S6: the respawned instance is the keybind's pipe destination ──────────
+# Identical URL + configuration ⇒ the next keybind toggle must reach the
+# fresh instance and hide it (proves single-instance addressing survived
+# the respawn).
+press F6
+expect_state "S6 keybind pipe reaches respawned instance (toggles hide)" T3 ""
 
 say "----"
 say "scenarios: $PASS passed, $FAIL failed"

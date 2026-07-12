@@ -52,8 +52,10 @@
   - files_allowed:
       - harpoon-plugin/src/main.rs
 - [x] 3.2 Handle the `toggle` pipe name: feed core branch selection, execute
-  the selected branch via host calls (`hide_self`, `show_self(true)`,
-  `break_panes_to_tab_with_index`), honoring the R3 decision from task 1.2.
+  the selected branch via host calls (`hide_self`, `show_self(true)`, and —
+  owner-ruled at the decision-audit landing — `open_plugin_pane_floating` +
+  `close_self` for the cross-tab respawn; `break_panes_to_tab_with_index`
+  is FORBIDDEN, upstream defect #3 destroys the pane under drift).
   CLI-sourced `toggle` pipes follow the existing Cli Pipe Client Release
   exactly-once unblock discipline.
   - intent: feature

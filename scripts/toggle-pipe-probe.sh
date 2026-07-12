@@ -134,7 +134,11 @@ if [ -f "$PERM_FILE" ]; then
 else
   mkdir -p "$(dirname "$PERM_FILE")"; : > "$PERM_FILE"; PERM_CREATED=1
 fi
-grep -qF "\"$WASM\"" "$PERM_FILE" || printf '"%s" {\n    ChangeApplicationState\n    RunCommands\n    ReadApplicationState\n    ReadCliPipes\n}\n' "$WASM" >> "$PERM_FILE"
+# Rewrite (never skip) this wasm's entry: a stale block missing a newly
+# required permission makes zellij show an interactive prompt the scripted
+# session can never answer.
+awk -v wasm="$WASM" 'BEGIN{skip=0} $0 == "\"" wasm "\" {" {skip=1; next} skip && /^\}/ {skip=0; next} !skip {print}' "$PERM_FILE" > "$PERM_FILE.tmp" && mv "$PERM_FILE.tmp" "$PERM_FILE"
+printf '"%s" {\n    ChangeApplicationState\n    RunCommands\n    ReadApplicationState\n    ReadCliPipes\n    OpenTerminalsOrPlugins\n}\n' "$WASM" >> "$PERM_FILE"
 
 # ── probe config: F6 → MessagePlugin toggle pipe (merges with defaults) ────
 CFG="$PROBE_DIR/probe-config.kdl"
