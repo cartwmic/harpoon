@@ -100,9 +100,16 @@ the stable tab ID), and SHALL NOT derive that state from cached
 2026-07-11: event caches freeze while the pane is suppressed, and zellij
 emits `Event::Visible` only to TILED plugin panes — a floating plugin never
 receives it). The parked-tab record used for the same-tab-vs-cross-tab
-determination SHALL itself originate from synchronous queries taken at the
-moments the parking changes (load, hide) — never from event caches.
-Constitution IV: never act on unverified host state.
+determination SHALL originate from synchronous queries taken ONLY at
+moments the plugin's own pane is verifiably the client's focused pane
+(post-show, pre-hide, or a grant-time check that passes the focused-pane
+identity test) — never from event caches and never from a focused-tab
+sample taken while another pane holds focus (a `jump_pane` cold spawn
+parks the pane on one tab while focusing a terminal on another; a proxy
+sample would poison the record and re-create the wrong-tab symptom).
+When no verified record exists the plugin SHALL take the respawn branch
+rather than show in place on a guess. Constitution IV: never act on
+unverified host state.
 
 #### Scenario: suppressed state queried, not assumed
 - **GIVEN** the plugin has been hidden long enough for cached events to be
@@ -118,6 +125,14 @@ Constitution IV: never act on unverified host state.
 - **THEN** the same-tab-vs-cross-tab determination SHALL compare the
   synchronously queried focused tab identity (`get_focused_pane_info`)
   against the sync-recorded parked tab, never against the cached active tab
+
+#### Scenario: jump-spawned instance does not poison the parked record
+- **GIVEN** a cold `jump_pane` pipe spawned the plugin parked on tab A
+  while focusing a terminal pane on tab B (focus never on the plugin)
+- **WHEN** a `toggle` pipe message later arrives from tab B
+- **THEN** the menu SHALL end on tab B with the view on tab B (no verified
+  parked record exists → respawn branch), never a warm in-place show that
+  yanks the view to tab A
 
 ## MODIFIED Requirements
 
