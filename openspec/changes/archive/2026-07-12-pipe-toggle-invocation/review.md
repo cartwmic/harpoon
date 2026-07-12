@@ -13,6 +13,8 @@ loop_max_iterations: 40
 validation_source_mode: required
 spec_level: spec-anchored
 doneness_mode: required
+loop_hold: true
+loop_hold_reason: "GATE-PASS (M) at worktree 6e66f4e (reviewed HEAD fff2f3f5, quiet round 3, doneness satisfied) — ready-to-archive report presented; awaiting human archive authorization"
 ---
 
 <!-- authored: in-session -->
@@ -115,6 +117,12 @@ non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -
   Frozen-intent conflict → loop_hold set; decision-audit presented to owner.
   S5 left failing by design — it correctly detects the defect; its expected
   assertion depends on the ruling.
+- 2026-07-12 08:45 — GATE-PASS (Scale M). Round 3 quiet (both models pass,
+  P0+P1=0); doneness satisfied (blind-single-judge gpt-5.6-sol). Round-3
+  advisories routed to follow-ups #5-#8. Reviewed range
+  402ac1e..fff2f3f5; sealed at worktree commit 6e66f4e. Runtime activation
+  (deploy + chezmoi keybind swap + OpenTerminalsOrPlugins visible-pane
+  regrant + live R1 observation) remains operational, post-archive.
 - 2026-07-12 07:40 — Respawn mechanism implemented (worktree 586c436):
   core `ToggleAction::Respawn` + `parked_on_focused_tab` ground truth
   (load-time parked-tab record, stale-safe — tab ids never reused);
