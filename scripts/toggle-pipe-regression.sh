@@ -177,6 +177,63 @@ expect_state "S5 invoke from drifted tab T3 (id>position) respawns menu+view on 
 press F6
 expect_state "S6 keybind pipe reaches respawned instance (toggles hide)" T3 ""
 
+# ── S7: jump_pane cold spawn must NOT poison the parked-tab record ────────
+# Round-2 review P1: a cold `jump_pane` pipe spawns the plugin on the
+# then-active tab while focusing a terminal on ANOTHER tab; a
+# focused-tab-proxy parked record taken at grant time would then make a
+# later toggle warm-show on the WRONG tab. Fresh session: pane on J1,
+# invoke the cold jump FROM J2 (plugin parks on J2, jump focuses J1), then
+# toggle from J1 — menu+view must land on J1 (respawn; never a warm show
+# on J2).
+SES2="htogglej$$"
+HOST2="htogglej-host$$"
+scr2() { tmux capture-pane -t "$HOST2" -p; }
+za2()  { zellij -s "$SES2" action "$@"; }
+cleanup2() {
+  tmux kill-session -t "$HOST2" 2>/dev/null || true
+  zellij kill-session "$SES2" 2>/dev/null || true
+  sleep 1
+  zellij delete-session "$SES2" --force >/dev/null 2>&1 || true
+}
+trap 'cleanup; cleanup2' EXIT
+
+tmux new-session -d -s "$HOST2" -x 180 -y 45 "zellij --config $CFG -s $SES2"
+for try in 1 2 3 4 5 6 7 8 9 10; do
+  zellij list-sessions 2>/dev/null | grep -q "$SES2" && break
+  sleep 2
+done
+sleep 2
+# Dismiss the fresh-session "About Zellij" tip pane — it steals focus and
+# would swallow the marker keystrokes.
+tmux send-keys -t "$HOST2" Escape; sleep 1
+za2 rename-tab J1; sleep 1
+# Mark the J1 pane to learn its id (precedent: cli-pipe-permission-regression).
+J1_ID=""
+for try in 1 2 3 4 5; do
+  za2 write-chars "clear; echo MARK_J1=\$ZELLIJ_PANE_ID"; sleep 1
+  za2 write 13; sleep 1.5
+  J1_ID="$(scr2 | sed -nE 's/.*MARK_J1=(terminal_)?([0-9]+).*/\2/p' | head -1)"
+  [ -n "$J1_ID" ] && break
+  tmux send-keys -t "$HOST2" Escape; sleep 1
+done
+[ -n "$J1_ID" ] || { say "FATAL could not resolve J1 pane id"; exit 1; }
+za2 new-tab; sleep 1; za2 rename-tab J2; sleep 1
+# Cold jump_pane FROM J2: plugin spawns parked on J2; jump focuses J1's pane.
+timeout 20 zellij -s "$SES2" pipe --name jump_pane --plugin "file:$WASM" -- "terminal_$J1_ID" || true
+f2=""
+for try in 1 2 3 4 5 6; do
+  L2="$(za2 dump-layout 2>/dev/null || true)"
+  f2="$(focused_tab_of "$L2")"
+  [ "$f2" = J1 ] && break
+  sleep 1
+done
+assert "S7-pre cold jump landed the view on J1 (focus=$f2)" "$([ "$f2" = J1 ]; echo $?)"
+# Toggle from J1: menu+view must land HERE, not warm-show on J2.
+tmux send-keys -t "$HOST2" F6; sleep 4
+L2="$(za2 dump-layout 2>/dev/null || true)"
+f2="$(focused_tab_of "$L2")"; h2="$(harpoon_tab_of "$L2")"
+assert "S7 toggle after cold jump_pane lands menu+view on J1 (focus=$f2 harpoon=${h2:-hidden})" "$([ "$f2" = J1 ] && [ "$h2" = J1 ]; echo $?)"
+
 say "----"
 say "scenarios: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

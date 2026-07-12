@@ -70,14 +70,18 @@ struct State {
     /// so the fresh instance keeps the same pipe-destination identity
     /// (URL + configuration) as the invoking keybind.
     raw_configuration: BTreeMap<String, String>,
-    /// Stable tab ID the pane lives on, recorded ONCE via a sync query at
-    /// load — the only moment parking is established, since without the
-    /// (forbidden) break relocation the pane never changes tab for the
-    /// instance's whole life; a respawned instance records its own. Never
-    /// from event caches (AC pane-pipe-api.toggle-state-sync-query-verified).
-    /// Stale-safe: tab ids are never reused, so if the parked tab closes
-    /// (zellij moves the suppressed pane elsewhere) the id comparison can
-    /// only yield false → the safe Respawn branch.
+    /// Stable tab ID the pane lives on. Recorded ONLY at moments the own
+    /// pane is VERIFIABLY the client's focused pane (post-show, pre-hide,
+    /// grant-time when self-focused) — then focused tab == own tab by
+    /// identity, never a proxy. A focused-tab sample taken while another
+    /// pane holds focus (e.g. an ntfy `jump_pane` cold spawn that parks the
+    /// pane on one tab and focuses a terminal on another) would poison the
+    /// record and re-create the wrong-tab symptom via the warm ShowInPlace
+    /// branch (round-2 review finding). Never from event caches
+    /// (AC pane-pipe-api.toggle-state-sync-query-verified).
+    /// Stale-safe both ways: unknown → Respawn (correct tab, ~100ms); tab
+    /// ids are never reused, so a closed parked tab can only compare false
+    /// → Respawn.
     parked_tab_id: Option<usize>,
     /// Set on `PermissionRequestResult(Granted)`. Response-decoding sync
     /// queries (`get_pane_info`, `get_focused_pane_info`, `get_tab_info`,
@@ -153,12 +157,12 @@ impl ZellijPlugin for State {
             }
             Event::PermissionRequestResult(PermissionStatus::Granted) => {
                 self.permissions_granted = true;
-                // Earliest safe moment for response-decoding sync queries:
-                // record the tab this pane parked in (it was spawned into
-                // the then-active tab and cannot have moved since).
-                if let Ok((tab_id, _)) = get_focused_pane_info() {
-                    self.parked_tab_id = Some(tab_id);
-                }
+                // Earliest safe moment for response-decoding sync queries.
+                // Record the parked tab ONLY when we are the focused pane
+                // (then focused tab == our tab by identity); a jump_pane
+                // cold spawn may have focus elsewhere — leave None (safe
+                // Respawn) rather than record a focused-tab proxy.
+                self.record_parked_if_self_focused();
                 let plugin_ids = get_plugin_ids();
                 rename_plugin_pane(plugin_ids.plugin_id, "harpoon");
             }
@@ -675,6 +679,12 @@ impl State {
             parked_on_focused_tab,
         }) {
             ToggleAction::Hide => {
+                // This branch fires only when own_is_focused verified true —
+                // the focused tab IS our tab: refresh the parked record
+                // (identity-verified, not a proxy) before hiding.
+                if let (Some((tab_id, _)), Some(true)) = (focused.as_ref(), own_is_focused) {
+                    self.parked_tab_id = Some(*tab_id);
+                }
                 // Same canonical close path as Esc (mode-state-machine
                 // "Close consolidation" — unchanged semantics).
                 self.close_helper();
@@ -685,6 +695,9 @@ impl State {
                 // finds the pane's tab including suppressed panes, navigates
                 // by tab.position, un-suppresses back to floating.
                 show_self(true);
+                // Post-show we should hold focus on our own tab — refresh
+                // the record under identity verification.
+                self.record_parked_if_self_focused();
                 true
             }
             ToggleAction::Respawn => {
@@ -771,13 +784,28 @@ impl State {
         };
         self.pending_cold_show = false;
         let _ = pane;
-        // The cold-spawned pane parked in the tab that was active at spawn
-        // time — the invoking tab; the load-time parked record covers it.
         // show_self is the position-correct focus path (harmless re-focus
-        // if the initial attempt won the race). No sync queries here: this
-        // runs in Timer/update context.
+        // if the initial attempt won the race); then record the parked tab
+        // under identity verification (post-grant context — queries safe).
         show_self(true);
+        self.record_parked_if_self_focused();
         true
+    }
+
+    /// Record `parked_tab_id` ONLY when the client's focused pane is
+    /// verifiably our own pane — then the focused tab equals our tab by
+    /// identity (never a proxy; round-2 P1: a focused-tab sample while a
+    /// jump target holds focus poisons the record and re-creates the
+    /// wrong-tab symptom). On any mismatch/failure the record is left
+    /// unchanged; an unknown record degrades to the safe Respawn branch.
+    /// Caller must ensure permissions are granted (response-decoding query).
+    fn record_parked_if_self_focused(&mut self) {
+        let own_id = get_plugin_ids().plugin_id;
+        if let Ok((tab_id, pane_id)) = get_focused_pane_info() {
+            if pane_id == zellij_tile::prelude::PaneId::Plugin(own_id) {
+                self.parked_tab_id = Some(tab_id);
+            }
+        }
     }
 }
 

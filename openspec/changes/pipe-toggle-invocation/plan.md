@@ -37,13 +37,13 @@
   the branch-selection inputs).
 - **Action:**
   1. Add branch enum + pure selection fn to `harpoon-core` (inputs:
-     event-derived visibility, own tab position Option, active tab position
-     Option; output: Hide | ShowInPlace | ShowThenRelocate{target} |
-     ColdShow).
+     sync-queried suppressed state, focused-pane identity, parked-tab
+     comparison; output: Hide | ShowInPlace | Respawn | ColdShow —
+     AS AMENDED by probe evidence + the owner ruling; see review.md Scope
+     Expansions).
   2. Native tests: all four branches; cold spawn (no cached state) never
-     reads manifest-derived inputs; cross-tab output encodes
-     un-suppress-before-relocate ordering (AC
-     `pane-pipe-api.toggle-pipe-invocation`).
+     reads manifest-derived inputs; cross-tab selects Respawn, never a
+     guessed in-place show (AC `pane-pipe-api.toggle-pipe-invocation`).
   3. `cargo test` green.
   4. Commit (`feat: core toggle branch selection`).
 - **Verification:**
@@ -56,12 +56,13 @@
 - **Covers:** T3.1, T3.2, T3.3
 - **Pre-conditions:** Step 2 committed.
 - **Action:**
-  1. Subscribe `EventType::Visible`; store event-derived visibility (AC
-     `pane-pipe-api.visibility-state-is-event-derived`).
+  1. Establish toggle state via synchronous host queries at pipe time (AC
+     `pane-pipe-api.toggle-state-sync-query-verified` — amended from the
+     retired Event::Visible design per probe evidence).
   2. Route the `toggle` pipe name through core branch selection; execute the
-     branch via `hide_self` / `show_self(true)` /
-     `break_panes_to_tab_with_index`; keep the existing CLI-pipe
-     exactly-once unblock discipline for `toggle`.
+     branch via `hide_self` / `show_self(true)` / the owner-ruled respawn
+     (`open_plugin_pane_floating` + `close_self`); keep the existing
+     CLI-pipe exactly-once unblock discipline for `toggle`.
   3. `cargo build --target wasm32-wasip1 --release` clean (Constitution
      III).
   4. Commit (`feat: toggle pipe show/hide lifecycle`).
@@ -116,7 +117,7 @@
 - `cargo build --target wasm32-wasip1 --release` — clean.
 - `scripts/toggle-pipe-regression.sh` — exit 0 (covers ACs
   `pane-pipe-api.toggle-pipe-invocation`,
-  `pane-pipe-api.visibility-state-is-event-derived` scenarios a-c).
+  `pane-pipe-api.toggle-state-sync-query-verified`).
 - Execution Notes carry R1/R2/R3 evidence (frozen-intent obligation).
 
 ## Manual Adjustments

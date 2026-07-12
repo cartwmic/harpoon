@@ -25,13 +25,13 @@
 
 ## 2. Core decision logic (Constitution I)
 
-- [x] 2.1 Add pure toggle-branch selection to `harpoon-core` (new module or
-  extension of `pipe_api.rs`): inputs = visibility state (event-derived),
-  own-pane tab position (Option), active tab position (Option, None on cold
-  spawn); output = branch enum {Hide, ShowInPlace, ShowThenRelocate{target},
-  ColdShow}. Encode the mandatory un-suppress-before-relocate ordering in the
-  output contract. Native tests cover all four branches plus the
-  cold-spawn/no-cached-state case (AC
+- [x] 2.1 Add pure toggle-branch selection to `harpoon-core` (extension of
+  `pipe_api.rs`): inputs = sync-queried suppressed state, focused-pane
+  identity, parked-tab comparison (all Options, None-tolerant for cold
+  spawn); output = branch enum {Hide, ShowInPlace, Respawn, ColdShow} — AS
+  AMENDED by probe evidence and the owner's decision-audit ruling (see
+  review.md Scope Expansions). Native tests cover all four branches plus
+  the cold-spawn/no-cached-state case (AC
   `pane-pipe-api.toggle-pipe-invocation`).
   - intent: feature
   - files_allowed:
