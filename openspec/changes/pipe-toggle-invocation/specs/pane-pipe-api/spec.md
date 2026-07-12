@@ -7,7 +7,8 @@
 THE plugin SHALL expose a named `toggle` pipe that drives its show/hide
 lifecycle, so that invocation never depends on the host's
 `LaunchOrFocusPlugin` focus path. On receiving a `toggle` pipe message the
-plugin SHALL select exactly one of four behavioral branches from its state:
+plugin SHALL select exactly one of four behavioral branches from
+synchronously queried host state (never from cached events):
 
 1. visible → hide (`hide_self()`; Esc-close semantics unchanged);
 2. hidden and parked on the client's active tab → show in place
@@ -44,11 +45,24 @@ I core/shim split); only the host calls live in the plugin shim.
 - **THEN** the menu and the client view SHALL end on the invoking tab (never
   on a tab addressed by a stale tab id)
 
-#### Scenario: visible toggle hides
-- **GIVEN** the plugin is visible
+#### Scenario: visible focused toggle hides
+- **GIVEN** the plugin is visible AND is the client's focused pane (the
+  reachable "open in front of the user" state — showing a floating plugin
+  focuses it, and focusing elsewhere hides the floating layer)
 - **WHEN** a `toggle` pipe message arrives
 - **THEN** the plugin SHALL hide itself (`hide_self()`), preserving the
   mode-state-machine Close consolidation behavior
+
+#### Scenario: unfocused container state is shown, not hidden
+- **GIVEN** the plugin's pane is in a tiled/floating container
+  (unsuppressed) but is NOT the client's focused pane — e.g. a
+  pipe-cold-spawned pane parked floating and unfocused (evidence
+  2026-07-11: such a pane is indistinguishable from a user-visible one via
+  synchronous queries, and hiding it made the first invocation a visible
+  no-op)
+- **WHEN** a `toggle` pipe message arrives
+- **THEN** the plugin SHALL bring its pane to the user (show + focus +
+  relocate to the invoking tab), never hide it
 
 #### Scenario: cold spawn shows without cached event state
 - **GIVEN** the plugin is not loaded and the `toggle` pipe message spawns it
@@ -63,21 +77,33 @@ I core/shim split); only the host calls live in the plugin shim.
 - **THEN** the plugin SHALL unblock that pipe input after handling (per the
   Cli Pipe Client Release requirement's exactly-once discipline)
 
-### Requirement: Visibility State Is Event-Derived
+### Requirement: Toggle State Is Sync-Query-Verified
 
-THE plugin SHALL derive its visibility state from the host's
-`Event::Visible` notifications (subscribing to that event), and SHALL NOT
-infer visibility from its own command history.
+THE plugin SHALL establish the state driving a `toggle` decision —
+its own pane's suppressed/visible state and the invoking client's focused
+tab — via synchronous host queries at pipe-handling time
+(`get_pane_info(PaneId::Plugin(own))`; `get_focused_pane_info()` returning
+the stable tab ID, converted to a position via `get_tab_info(tab_id)`), and
+SHALL NOT derive that state from cached `TabUpdate`/`PaneUpdate` events or
+from `Event::Visible` (probe evidence 2026-07-11: event caches freeze while
+the pane is suppressed, and zellij emits `Event::Visible` only to TILED
+plugin panes — a floating plugin never receives it). Constitution IV: never
+act on unverified host state.
 
-#### Scenario: Visible subscription present
-- **WHEN** the plugin's `load()` subscribes to events
-- **THEN** the subscription SHALL include `EventType::Visible`
+#### Scenario: suppressed state queried, not assumed
+- **GIVEN** the plugin has been hidden long enough for cached events to be
+  stale (events do not flow to suppressed panes)
+- **WHEN** a `toggle` pipe message arrives
+- **THEN** the visibility decision SHALL come from a synchronous
+  `get_pane_info` query of the plugin's own pane (fresh `is_suppressed`)
 
-#### Scenario: host-driven visibility change is tracked
-- **GIVEN** the plugin issued no show/hide host call itself
-- **WHEN** the host reports a visibility change via `Event::Visible`
-- **THEN** the next `toggle` branch selection SHALL reflect the reported
-  state, not the state implied by the plugin's last command
+#### Scenario: relocation target queried, not cached
+- **GIVEN** the client switched tabs while the plugin was hidden (cached
+  `TabUpdate` still reports the pre-hide active tab)
+- **WHEN** a `toggle` pipe message arrives from the new tab
+- **THEN** the relocation target SHALL be the synchronously queried focused
+  tab's position (`get_focused_pane_info` → `get_tab_info(...).position`),
+  never the cached active tab
 
 ## MODIFIED Requirements
 
@@ -92,4 +118,4 @@ infer visibility from its own command history.
 | AC ID | Testable | Solution-free | Unambiguous | Consistent | Complete |
 |---|---|---|---|---|---|
 | pane-pipe-api.toggle-pipe-invocation | [x] | [x] | [x] | [x] | [x] |
-| pane-pipe-api.visibility-state-is-event-derived | [x] | [x] | [x] | [x] | [x] |
+| pane-pipe-api.toggle-state-sync-query-verified | [x] | [x] | [x] | [x] | [x] |
