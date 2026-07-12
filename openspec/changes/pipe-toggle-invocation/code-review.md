@@ -20,11 +20,26 @@ objective correctness/security defect. P0/P1 findings gate; P2/P3 do not.
 | Round | Mode | P0 | P1 | P2 | P3 | Reviewer verdicts | Reviewed HEAD |
 |---|---|---|---|---|---|---|---|
 | 1 | blind | 0 | 3 | 3 | 1 | gpt-5.6-sol:fail, claude-fable-5:fail | a8a1c25e1bdc8a2991ad02324d3214e105deb8ff |
+| 2 | blind | 0 | 1 | 2 | 5 | gpt-5.6-sol:fail, claude-fable-5:pass | fd719aa551bce4d7a0feb1606a370ab583849aca |
 
 Consolidation = max across reviewers per severity, no cross-reviewer finding
 matching. Full reviewer findings preserved at
-`/tmp/opsx-cr-pipe-toggle/cr-sol.md` and `/tmp/opsx-cr-pipe-toggle/cr-fable.md`;
-substance mirrored below.
+`/tmp/opsx-cr-pipe-toggle/cr-sol.md`, `cr-fable.md` (round 1), `r2-sol.md`,
+`r2-fable.md` (round 2); substance mirrored below.
+
+Round 2 (split verdict: sol fail P1=1, fable pass): consolidated P1 = the
+parked-tab record was a grant-time FOCUSED-TAB PROXY, poisonable by a cold
+`jump_pane` spawn (parks on A, focuses B) — a later toggle would warm-show
+on the wrong tab (sol#1; fable flagged the same vector as P2). FIXED at
+worktree 90fd231: recording now happens ONLY under focused-pane identity
+verification (post-show, pre-hide, grant-time identity check); unknown
+record ⇒ safe Respawn. Regression S7 pins the jump-spawn poisoning
+scenario (11/11). Advisory routing: pre-grant shim decision + cold-show
+retry policy (fable r2#2, sol r2#2) extend follow-ups #1; spawn-failure
+fallback semantics (sol r2#3) routed as follow-ups #3; artifact drift
+(fable r2#3) fixed in plan/tasks; theoretical persistence race +
+double-invoke window + silent budget exhaustion (fable r2#4-6) accepted as
+residual risks.
 
 ## Findings (consolidated, round 1)
 
