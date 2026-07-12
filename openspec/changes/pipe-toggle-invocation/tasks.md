@@ -84,7 +84,7 @@
 
 ## 5. Runtime activation documentation (operational — outside gate assertions)
 
-- [ ] 5.1 Document in README: deploy wasm to
+- [x] 5.1 Document in README: deploy wasm to
   `~/.config/zellij/plugins/harpoon.wasm`; replace the chezmoi-managed
   `~/.config/zellij/config.kdl` `Ctrl y` binding (`LaunchOrFocusPlugin`
   block → `MessagePlugin` with `name "toggle"` and the same plugin URL);

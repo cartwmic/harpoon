@@ -129,14 +129,15 @@ in-memory representation compacts to dense.
 
 ## Configuration
 
-Add config keys to your zellij keybind block:
+Bind the invocation key to the `toggle` pipe (`MessagePlugin`), with config
+keys inline:
 
 ```kdl
 shared_except "locked" {
     bind "Ctrl y" {
-        LaunchOrFocusPlugin "file:~/.config/zellij/plugins/harpoon.wasm" {
-            floating true
-            move_to_focused_tab true
+        MessagePlugin "file:~/.config/zellij/plugins/harpoon.wasm" {
+            name "toggle"
+            floating true            // REQUIRED: a cold spawn without it lands TILED
             default_mode "command"   // "command" | "filter" | "jump"
             matcher "fuzzy"          // "fuzzy" | "substring"
             show_slots "true"        // "true" | "false" | "yes" | "no" | ...
@@ -145,9 +146,17 @@ shared_except "locked" {
 }
 ```
 
-All keys are optional. Defaults: `default_mode = "command"`, `matcher =
-"fuzzy"`, `show_slots = "true"`. Values are case-insensitive; unknown values
-fall back to the default.
+All keys except `name`/`floating` are optional. Defaults: `default_mode =
+"command"`, `matcher = "fuzzy"`, `show_slots = "true"`. Values are
+case-insensitive; unknown values fall back to the default.
+
+**Do NOT bind `LaunchOrFocusPlugin` for invocation.** Its host-side focus
+path (`focus_plugin_pane`, zellij ≤ 0.44.3 and current upstream `main`)
+carries a double defect — a tab-id/position confusion in `go_to_tab` plus a
+silent no-op moving suppressed panes — that jumps the view to an unrelated
+tab in tab-churned sessions and strands the menu on its old tab. The
+`toggle` pipe never executes that path: harpoon shows/hides itself via
+position-correct host calls (see `openspec/specs/pane-pipe-api/spec.md`).
 
 ## Persistence
 
@@ -187,6 +196,12 @@ External processes can drive harpoon over `zellij pipe`:
   instance.
 - `slot_for_pane` — reverse lookup: prints the 1-based slot currently holding
   a pane id.
+- `toggle` — show/hide the menu (the keybind's pipe; see
+  [Configuration](#configuration)). Source-agnostic: works from a keybind
+  `MessagePlugin`, a CLI `zellij pipe`, or plugin-to-plugin. Shows on the
+  invoking tab (relocating the pane cross-tab), hides when already open and
+  focused; all decisions run on synchronous host queries, never cached event
+  state.
 
 Always target the pipe at the plugin explicitly:
 
@@ -197,12 +212,12 @@ zellij pipe --name jump_pane \
 ```
 
 Zellij treats the same plugin with a different configuration as a different
-pipe destination. If you also launch harpoon from a keybind with
-`LaunchOrFocusPlugin { ... }` configuration, add a matching
-`--plugin-configuration "default_mode=command,matcher=fuzzy,show_slots=true"`
-to reach that warm instance instead of spawning a configless twin (the twin
-works too — it persists and is reused after its first pipe — matching just
-saves the one-time load).
+pipe destination. The keybind `MessagePlugin { ... }` config participates in
+that identity: give CLI pipes a matching `--plugin-configuration
+"default_mode=command,matcher=fuzzy,show_slots=true"` (mirroring the keybind
+block) to reach the same warm instance instead of spawning a configless twin
+(the twin works too — it persists and is reused after its first pipe —
+matching just saves the one-time load).
 
 **Never use a broadcast pipe** (omitting `--plugin`) for `jump_pane`: zellij
 delivers broadcasts to every running plugin instance, and two harpoon
@@ -272,6 +287,32 @@ addition), the grant must be renewed at runtime:
 4. Restart any long-lived zellij server that predates the grant (e.g. a
    `workspace` session) to clear accumulated wedged pipe clients:
    `zellij kill-session <name>` then reattach.
+
+### Activating the toggle-pipe keybind (pipe-toggle-invocation)
+
+Switching invocation from `LaunchOrFocusPlugin` to the `toggle` pipe is a
+config + deploy change (operational — outside this repo's test gate):
+
+1. Deploy the wasm:
+   `cp target/wasm32-wasip1/release/harpoon.wasm ~/.config/zellij/plugins/`
+2. In the (chezmoi-managed) `~/.config/zellij/config.kdl`, replace the
+   `Ctrl y` → `LaunchOrFocusPlugin "file:...harpoon.wasm" { ... }` block
+   with the `MessagePlugin` block from [Configuration](#configuration) —
+   same plugin URL, `name "toggle"`, and **`floating true`** (a cold spawn
+   without it lands as a tiled split). Keep the harpoon config keys
+   (`default_mode`/`matcher`/`show_slots`) in the new block so the warm
+   instance identity (and any ntfy `--plugin-configuration`) still matches.
+3. Reload the config (zellij picks up config.kdl changes live) or restart
+   the server session.
+4. Verify a warm round-trip: `Ctrl y` shows the menu floating on the current
+   tab → `Esc` hides → switch tab → `Ctrl y` again shows it on the NEW tab
+   (menu and view together — the wrong-tab jump is gone). Watch the
+   cross-tab show for visual artifacts: the show-then-relocate pair is two
+   host calls; anything worse than a brief single-frame flicker is worth
+   reporting.
+5. Until the keybind is swapped, invocation still routes through zellij's
+   broken `focus_plugin_pane` path — deploying the wasm alone changes
+   nothing about the wrong-tab jump.
 
 ## Keybinding
 
