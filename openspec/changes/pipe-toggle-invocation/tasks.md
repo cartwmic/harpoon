@@ -25,7 +25,7 @@
 
 ## 2. Core decision logic (Constitution I)
 
-- [ ] 2.1 Add pure toggle-branch selection to `harpoon-core` (new module or
+- [x] 2.1 Add pure toggle-branch selection to `harpoon-core` (new module or
   extension of `pipe_api.rs`): inputs = visibility state (event-derived),
   own-pane tab position (Option), active tab position (Option, None on cold
   spawn); output = branch enum {Hide, ShowInPlace, ShowThenRelocate{target},
@@ -36,7 +36,7 @@
   - intent: feature
   - files_allowed:
       - harpoon-core/src/**
-- [ ] 2.2 Run `cargo test` (native, harpoon-core) — all green.
+- [x] 2.2 Run `cargo test` (native, harpoon-core) — all green.
 
 ## 3. Plugin shim wiring
 
