@@ -39,8 +39,16 @@ function entirely.
   - not loaded (cold spawn from the pipe) → `show_self(true)`; MUST NOT
     depend on cached TabUpdate/PaneUpdate state (Constitution IV — the pipe
     arrives before the first events on cold spawn).
-- Subscribe to `Event::Visible` and derive visibility state from it (never
-  from command history).
+- Establish all toggle-decision state via synchronous host queries at pipe
+  time (`get_pane_info` for own suppressed state; `get_focused_pane_info` →
+  `get_tab_info` for the invoking tab's position). AMENDED from the frozen
+  intent's `Event::Visible` mechanism by task 1.1/1.2 probe evidence
+  (2026-07-11, `scripts/toggle-pipe-probe.sh`, 7/7): event caches freeze
+  while suppressed, and zellij emits `Event::Visible` only to tiled plugin
+  panes — a floating plugin never receives it. The sync-query mechanism
+  satisfies the same frozen invariant (Constitution IV: verified, never
+  assumed) that the event-derived constraint cited; recorded as a Scope
+  Expansion in review.md.
 - Toggle branch selection lands as pure decision logic in `harpoon-core`
   with native tests; host calls stay in the plugin shim (Constitution I).
 - `pane-pipe-api` spec delta: toggle-pipe requirement (invocation via named
@@ -51,9 +59,12 @@ function entirely.
   id/position drift), and same-tab re-invoke after Esc-close.
 - In-change resolution, with recorded evidence, of the three frozen risks:
   R1 cross-tab show-then-relocate flicker (observe; escalate if worse than a
-  brief single-frame artifact), R2 keybind-source pipe delivery/permission
-  semantics, R3 suppressed-pane visibility in `PaneManifest` (fallback:
-  unconditional show-then-relocate-if-needed).
+  brief single-frame artifact — open, task 4.2), R2 keybind-source pipe
+  delivery/permission semantics (RESOLVED 2026-07-11: `source=Keybind`
+  delivered to the loaded plugin, zero permission denials), R3
+  suppressed-pane visibility in `PaneManifest` (RESOLVED 2026-07-11: cached
+  manifest is STALE while suppressed — superseded by synchronous host
+  queries, which are fresh; evidence in review.md Execution Notes).
 - Document runtime activation (operational, outside gate assertions): deploy
   wasm; update the chezmoi-managed `~/.config/zellij/config.kdl` keybind
   (`LaunchOrFocusPlugin` block → `MessagePlugin` with the `toggle` pipe name

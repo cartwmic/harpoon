@@ -54,10 +54,39 @@ doneness_mode: required
 <!-- Transient observations appended during apply. One-line entries when a
 non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -->
 
+- 2026-07-11 19:25 — Tasks 1.1+1.2 probes 7/7 (`scripts/toggle-pipe-probe.sh`,
+  worktree commit 6ca7fd5). R2 RESOLVED: keybind `MessagePlugin` pipe reaches
+  the loaded (even suppressed) plugin, `source=Keybind`, zero permission
+  denials. R3 RESOLVED: cached `TabUpdate`/`PaneUpdate` FREEZE while the pane
+  is suppressed (probe: cached_active_tab=0/unsuppressed after a real hide +
+  tab switch), while synchronous queries are fresh
+  (`get_focused_pane_info`→tab id 1, `get_tab_info`→(pos 1, active),
+  `get_pane_info(own)`→suppressed=true). Bonus finding: `Event::Visible` is
+  emitted ONLY to tiled plugin panes (zellij tab/mod.rs `Tab::visible()`
+  filters `tiled_panes.pane_ids()`) — floating harpoon NEVER receives it;
+  probe observed zero deliveries. Also: `get_focused_pane_info()` returns the
+  STABLE TAB ID (screen.rs `active_tab_ids`), not a position — convert via
+  `get_tab_info(id).position` before any position-based host call; and
+  tab-side `get_pane_info` hardcodes `is_focused=false` (never use it for
+  focus decisions).
+
 ## Scope Expansions
 
 <!-- Evidence-gated widenings (opsx-adversarial-review). One entry per widening;
 surfaced at the decision-audit landing or gate-green. -->
+
+- 2026-07-11 — Visibility-state MECHANISM substituted: frozen intent
+  prescribed `Event::Visible` subscription with event-derived visibility;
+  probe evidence (task 1.1/1.2, 7/7) shows zellij emits `Event::Visible`
+  only to TILED plugin panes (floating harpoon never receives it) and event
+  caches freeze while suppressed — the prescribed mechanism is structurally
+  unavailable. Substituted synchronous host queries (`get_pane_info`,
+  `get_focused_pane_info` + `get_tab_info`), which satisfy the same frozen
+  invariant the constraint cited (Constitution IV: verified, never assumed)
+  strictly better. Intent MEANING (verified visibility state; the
+  user-observable outcome) unchanged; intent.md untouched. Spec delta
+  requirement renamed accordingly (`toggle-state-sync-query-verified`).
+  Evidence: Execution Notes 2026-07-11; `scripts/toggle-pipe-probe.sh`.
 
 ## Fidelity Round Ledger
 
