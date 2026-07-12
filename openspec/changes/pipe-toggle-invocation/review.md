@@ -89,6 +89,32 @@ non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -
   observation deferred to runtime activation step 4 (README) with the
   frozen escalation trigger (worse than brief single-frame → report)
   restated there.
+- 2026-07-11 22:10 — OWNER RULING (decision-audit landing): "fix" — user
+  ruled the cross-tab mechanism should OPEN A NEW PANE ON THE INVOKING TAB
+  ("why can't it just open a new pane in the tab I'm in?"). Verified
+  feasible: `open_plugin_pane_floating` (zellij-tile 0.44.3 shim:1006) routes
+  through `Action::NewFloatingPluginPane` — a new-pane action that never
+  touches the broken focus/move paths and does not dedupe instances; own URL
+  available fresh via `get_pane_info(own).plugin_url`. Mechanism: cross-tab
+  show = spawn fresh instance floating+focused on the invoking tab, then old
+  instance `close_self()`; same-tab show stays warm (`show_self`). Relocation
+  via `break_panes_to_tab_with_index` ABANDONED (upstream defect #3,
+  pane-loss). loop_hold cleared per this ruling; round budget extension
+  granted implicitly (rounds continue, ledger retains round 1).
+- 2026-07-11 21:45 — Regression S5 (drifted invoking tab, added per fable#4)
+  exposed upstream zellij defect #3: `break_multiple_panes_to_tab_with_index`
+  existence-check + go_to_tab are POSITION-based but the final
+  `get_indexed_tab_mut(tab_index)` is `tabs.get_mut(&tab_index)` — STABLE-ID
+  keyed — so when the target position has no same-numbered tab id, the
+  extracted pane is silently DROPPED and the plugin instance dies (zellij
+  log `screen.rs:4336 Could not find tab with index: 1`; observed "Bye from
+  plugin"). Verified against v0.44.3 source. Consequence: drift-safe pane
+  relocation is impossible in the 0.44.3 plugin API (audited all pane/tab
+  movers: break_* is the only pane-to-tab primitive; FloatMultiplePanes is
+  in-tab; MessageToPlugin cannot self-respawn a same-alias instance).
+  Frozen-intent conflict → loop_hold set; decision-audit presented to owner.
+  S5 left failing by design — it correctly detects the defect; its expected
+  assertion depends on the ruling.
 - 2026-07-11 21:20 — Code-review round 1 (blind, 2 models) consolidated:
   P0=0 P1=3 P2=3 P3=1, both verdicts fail. Dispatch adapter reported both
   child runs as failed (bash exit 1) yet BOTH findings files were complete
@@ -116,6 +142,19 @@ surfaced at the decision-audit landing or gate-green. -->
   user-observable outcome) unchanged; intent.md untouched. Spec delta
   requirement renamed accordingly (`toggle-state-sync-query-verified`).
   Evidence: Execution Notes 2026-07-11; `scripts/toggle-pipe-probe.sh`.
+- 2026-07-11 — Cross-tab relocation MECHANISM substituted (owner-ruled at
+  the decision-audit landing): frozen intent prescribed un-suppress via
+  `show_self(true)` then `break_panes_to_tab_with_index`; regression S5
+  proved the break host call DESTROYS the pane under tab-id/position drift
+  (upstream defect #3 — position-based existence check + id-keyed
+  `get_indexed_tab_mut`), and no drift-safe pane-to-tab mover exists in the
+  0.44.3 plugin API. Substituted: respawn-on-invoking-tab —
+  `open_plugin_pane_floating(own_url, own_config)` (new-pane action, never
+  the broken paths) then `close_self()` on the old instance; same-tab stays
+  warm. Frozen user-observable outcome (menu on invoking tab, view stays,
+  drift-immune) now FULLY met — stronger than the original mechanism, which
+  hopped the view through the parked tab. Cost: cold load (~0.1s) on
+  cross-tab invokes only. intent.md untouched.
 - 2026-07-11 — "Visible → hide" branch REFINED to "visible AND focused →
   hide; unfocused container state → bring to user": synchronous queries
   cannot distinguish a pipe-cold-spawned pane (parked floating, unfocused,

@@ -11,14 +11,23 @@ plugin SHALL select exactly one of four behavioral branches from
 synchronously queried host state (never from cached events):
 
 1. visible → hide (`hide_self()`; Esc-close semantics unchanged);
-2. hidden and parked on the client's active tab → show in place
+2. hidden and parked on the client's active tab → show in place, warm
    (`show_self`);
-3. hidden and parked on another tab → un-suppress via `show_self` FIRST,
-   THEN relocate its own pane to the active tab
-   (`break_panes_to_tab_with_index`) — the relocation host call cannot
-   extract suppressed panes, so this ordering is mandatory;
+3. hidden and parked on another tab (or parked on an unknown tab) →
+   RESPAWN on the invoking tab: open a fresh instance of itself as a
+   floating pane in the client's active tab
+   (`open_plugin_pane_floating(own_url, own_configuration)` — a new-pane
+   host action), then close the old instance (`close_self()`). Pane
+   relocation via `break_panes_to_tab_with_index` is FORBIDDEN: under
+   tab-id/position drift that host call destroys the extracted pane
+   (upstream defect, evidence 2026-07-11);
 4. freshly spawned by the pipe itself (cold spawn, no cached event state) →
    show in place.
+
+The respawned instance SHALL be opened with the plugin's own URL and its
+verbatim load-time configuration, so the new instance remains the pipe
+destination of the invoking keybind (instance identity = URL +
+configuration).
 
 Branch selection SHALL be pure decision logic in `harpoon-core` (Constitution
 I core/shim split); only the host calls live in the plugin shim.
@@ -29,14 +38,16 @@ I core/shim split); only the host calls live in the plugin shim.
 - **THEN** the plugin SHALL show itself as a floating pane on tab T
 - **AND** the client view SHALL remain on tab T
 
-#### Scenario: cross-tab invoke relocates to the invoking tab
+#### Scenario: cross-tab invoke respawns on the invoking tab
 - **GIVEN** the plugin is hidden and parked on tab A
 - **WHEN** a `toggle` pipe message arrives while the client's active tab is
   B (B ≠ A)
-- **THEN** the plugin SHALL un-suppress itself BEFORE issuing the relocation
-  host call
+- **THEN** the plugin SHALL open a fresh instance of itself as a floating,
+  focused pane on tab B and close the old instance
 - **AND** the menu SHALL end as a floating pane on tab B with the client
-  view on tab B
+  view remaining on tab B (never hopping through tab A)
+- **AND** exactly one plugin instance SHALL survive, and it SHALL remain
+  reachable by the invoking keybind's pipe (identical URL + configuration)
 
 #### Scenario: correct under tab-id/position drift
 - **GIVEN** at least one tab has been closed since the plugin's home tab was
@@ -61,8 +72,9 @@ I core/shim split); only the host calls live in the plugin shim.
   synchronous queries, and hiding it made the first invocation a visible
   no-op)
 - **WHEN** a `toggle` pipe message arrives
-- **THEN** the plugin SHALL bring its pane to the user (show + focus +
-  relocate to the invoking tab), never hide it
+- **THEN** the plugin SHALL bring its menu to the user (show + focus — in
+  place when already on the active tab, else via the respawn branch), never
+  hide it
 
 #### Scenario: cold spawn shows without cached event state
 - **GIVEN** the plugin is not loaded and the `toggle` pipe message spawns it
@@ -79,16 +91,18 @@ I core/shim split); only the host calls live in the plugin shim.
 
 ### Requirement: Toggle State Is Sync-Query-Verified
 
-THE plugin SHALL establish the state driving a `toggle` decision —
-its own pane's suppressed/visible state and the invoking client's focused
-tab — via synchronous host queries at pipe-handling time
+THE plugin SHALL establish the state driving a `toggle` decision — its own
+pane's suppressed/visible state, its own URL, and the invoking client's
+focused tab — via synchronous host queries at pipe-handling time
 (`get_pane_info(PaneId::Plugin(own))`; `get_focused_pane_info()` returning
-the stable tab ID, converted to a position via `get_tab_info(tab_id)`), and
-SHALL NOT derive that state from cached `TabUpdate`/`PaneUpdate` events or
-from `Event::Visible` (probe evidence 2026-07-11: event caches freeze while
-the pane is suppressed, and zellij emits `Event::Visible` only to TILED
-plugin panes — a floating plugin never receives it). Constitution IV: never
-act on unverified host state.
+the stable tab ID), and SHALL NOT derive that state from cached
+`TabUpdate`/`PaneUpdate` events or from `Event::Visible` (probe evidence
+2026-07-11: event caches freeze while the pane is suppressed, and zellij
+emits `Event::Visible` only to TILED plugin panes — a floating plugin never
+receives it). The parked-tab record used for the same-tab-vs-cross-tab
+determination SHALL itself originate from synchronous queries taken at the
+moments the parking changes (load, hide) — never from event caches.
+Constitution IV: never act on unverified host state.
 
 #### Scenario: suppressed state queried, not assumed
 - **GIVEN** the plugin has been hidden long enough for cached events to be
@@ -97,13 +111,13 @@ act on unverified host state.
 - **THEN** the visibility decision SHALL come from a synchronous
   `get_pane_info` query of the plugin's own pane (fresh `is_suppressed`)
 
-#### Scenario: relocation target queried, not cached
+#### Scenario: cross-tab determination queried, not cached
 - **GIVEN** the client switched tabs while the plugin was hidden (cached
   `TabUpdate` still reports the pre-hide active tab)
 - **WHEN** a `toggle` pipe message arrives from the new tab
-- **THEN** the relocation target SHALL be the synchronously queried focused
-  tab's position (`get_focused_pane_info` → `get_tab_info(...).position`),
-  never the cached active tab
+- **THEN** the same-tab-vs-cross-tab determination SHALL compare the
+  synchronously queried focused tab identity (`get_focused_pane_info`)
+  against the sync-recorded parked tab, never against the cached active tab
 
 ## MODIFIED Requirements
 
