@@ -40,17 +40,12 @@ assert() {
   if [ "$2" -eq 0 ]; then say "PASS $1"; PASS=$((PASS+1)); else say "FAIL $1"; FAIL=$((FAIL+1)); fi
 }
 
-layout() { za dump-layout; }
-
-# Name of the tab carrying focus=true in the dumped layout.
-focused_tab() {
-  layout | sed -nE 's/.*tab name="([^"]+)".*focus=true.*/\1/p' | head -1
-}
-
-# Name of the tab whose block contains the harpoon floating plugin pane
-# (empty when hidden/suppressed — suppressed panes are not serialized).
-harpoon_tab() {
-  layout | awk '
+# Parse focused tab + harpoon-holding tab from ONE captured dump-layout.
+# (Never pipe the zellij client into an early-closing reader like `head` —
+# the client panics on EPIPE when the reader exits first.)
+focused_tab_of() { printf '%s\n' "$1" | sed -nE 's/.*tab name="([^"]+)".*focus=true.*/\1/p' | head -1; }
+harpoon_tab_of() {
+  printf '%s\n' "$1" | awk '
     /^[[:space:]]*tab name="/ {
       match($0, /name="[^"]+"/); tab = substr($0, RSTART+6, RLENGTH-7)
     }
@@ -58,12 +53,13 @@ harpoon_tab() {
   '
 }
 
-# Wait until focused_tab==$1 and harpoon_tab==$2 ("" = hidden); retry loop
+# Wait until focused==$2 and harpoon-tab==$3 ("" = hidden); retry loop
 # absorbs zellij's asynchronous layout settling.
 expect_state() { # expect_state <label> <focused> <harpoon-tab-or-empty>
-  local label="$1" want_focus="$2" want_harpoon="$3" f h try
+  local label="$1" want_focus="$2" want_harpoon="$3" L f h try
   for try in 1 2 3 4 5 6; do
-    f="$(focused_tab)"; h="$(harpoon_tab)"
+    L="$(za dump-layout 2>/dev/null || true)"
+    f="$(focused_tab_of "$L")"; h="$(harpoon_tab_of "$L")"
     [ "$f" = "$want_focus" ] && [ "$h" = "$want_harpoon" ] && { assert "$label (focus=$f harpoon=${h:-hidden})" 0; return; }
     sleep 1
   done
@@ -137,7 +133,7 @@ expect_state "S3-pre menu shown again on T3" T3 T3
 HIDDEN=""
 for attempt in 1 2 3 4 5; do
   press Escape
-  [ -z "$(harpoon_tab)" ] && { HIDDEN=1; break; }
+  [ -z "$(harpoon_tab_of "$(za dump-layout 2>/dev/null || true)")" ] && { HIDDEN=1; break; }
   say "NOTE Esc attempt $attempt did not hide; refocusing via F6 x2"
   press F6; press F6
 done
@@ -155,6 +151,17 @@ za close-tab; sleep 2
 za go-to-tab-name T1; sleep 1
 press F6
 expect_state "S4 cross-tab invoke under id/position drift lands menu+view on T1" T1 T1
+
+# ── S5: invoke FROM the drifted tab — T3's stable id exceeds its position ──
+# Exercises the plugin's own stable-id→position conversion
+# (get_focused_pane_info → get_tab_info(id).position) for a DRIFTED invoking
+# tab, so an id/position confusion in the conversion is actually falsified
+# (S4's T1 has id == position == 0 regardless of churn).
+press F6   # hide again (parks on T1)
+expect_state "S5-pre hidden again (parked on T1)" T1 ""
+za go-to-tab-name T3; sleep 1
+press F6
+expect_state "S5 invoke from drifted tab T3 (id>position) lands menu+view on T3" T3 T3
 
 say "----"
 say "scenarios: $PASS passed, $FAIL failed"

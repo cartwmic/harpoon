@@ -181,7 +181,7 @@ impl ZellijPlugin for State {
         // `MessagePlugin` pipe — PipeSource::Keybind — probe-verified
         // 2026-07-11); the remaining names are CLI-facing surfaces.
         let is_cli = matches!(pipe_message.source, PipeSource::Cli(_));
-        let payload = pipe_message.payload.clone().unwrap_or_default();
+        let payload = pipe_message.payload.unwrap_or_default();
         let mut should_render = false;
         match pipe_message.name.as_str() {
             // AC: pane-pipe-api.toggle-pipe-invocation
@@ -648,6 +648,12 @@ impl State {
                     target_tab_position,
                     true,
                 );
+                // Re-assert focus: the break relocation does NOT focus the
+                // moved pane (regression S5 evidence 2026-07-11 — an
+                // unfocused menu neither receives keys nor hides on the
+                // next toggle). show_self on the now-relocated pane is a
+                // same-tab focus, no view change.
+                show_self(true);
                 true
             }
             ToggleAction::ColdShow => {
@@ -699,6 +705,8 @@ impl State {
                         tab.position,
                         true,
                     );
+                    // Post-break focus re-assert (see ShowThenRelocate).
+                    show_self(true);
                 }
             }
         }
