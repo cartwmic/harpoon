@@ -40,7 +40,7 @@
 
 ## 3. Plugin shim wiring
 
-- [ ] 3.1 Establish toggle state via synchronous host queries at pipe time
+- [x] 3.1 Establish toggle state via synchronous host queries at pipe time
   (AC `pane-pipe-api.toggle-state-sync-query-verified`):
   `get_pane_info(PaneId::Plugin(own))` for suppressed/visible state,
   `get_focused_pane_info()` → `get_tab_info(tab_id)` for the invoking tab's
@@ -51,7 +51,7 @@
   - intent: feature
   - files_allowed:
       - harpoon-plugin/src/main.rs
-- [ ] 3.2 Handle the `toggle` pipe name: feed core branch selection, execute
+- [x] 3.2 Handle the `toggle` pipe name: feed core branch selection, execute
   the selected branch via host calls (`hide_self`, `show_self(true)`,
   `break_panes_to_tab_with_index`), honoring the R3 decision from task 1.2.
   CLI-sourced `toggle` pipes follow the existing Cli Pipe Client Release
@@ -60,7 +60,7 @@
   - files_allowed:
       - harpoon-plugin/src/main.rs
       - harpoon-core/src/**
-- [ ] 3.3 Build for the only supported target (Constitution III):
+- [x] 3.3 Build for the only supported target (Constitution III):
   `cargo build --target wasm32-wasip1 --release` — clean compile.
 
 ## 4. Regression scenarios (validation source) + R1 evidence

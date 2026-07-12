@@ -19,9 +19,10 @@ use zellij_tile::prelude::*;
 use harpoon_core::{
     build_header, build_hint_line, build_row_entries, build_rows, compute_layout_budget, dispatch,
     filtered_indices, focused_idx as core_focused_idx, parse_pane_id, reanchor_selected_to_focus,
-    post_focus_fullscreen_plan, resolve_restore_round, slot_for_pane, BookmarkStore, Config,
-    DispatchContext, DispatchState, Effect, FullscreenGroundTruth, HighlightKind, InputKey,
-    MatcherImpl, ModifierSet, Pane, RenderRow, VisiblePane,
+    post_focus_fullscreen_plan, resolve_restore_round, slot_for_pane, toggle_plan, BookmarkStore,
+    Config, DispatchContext, DispatchState, Effect, FullscreenGroundTruth, HighlightKind,
+    InputKey, MatcherImpl, ModifierSet, Pane, RenderRow, ToggleAction, ToggleGroundTruth,
+    VisiblePane,
 };
 
 /// Phase 0.1 verified: y=0 IS visible in zellij 0.44.1 floating plugin
@@ -156,35 +157,42 @@ impl ZellijPlugin for State {
     /// `$ZELLIJ_PANE_ID`, or bare `N`). An unresolvable/absent payload is a
     /// no-op: no state mutation, no focus change.
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
-        // Only CLI-originated pipes drive this external surface.
-        let PipeSource::Cli(_) = pipe_message.source else {
-            return false;
-        };
-        let payload = pipe_message.payload.unwrap_or_default();
+        // `toggle` is source-agnostic (the production caller is the keybind
+        // `MessagePlugin` pipe — PipeSource::Keybind — probe-verified
+        // 2026-07-11); the remaining names are CLI-facing surfaces.
+        let is_cli = matches!(pipe_message.source, PipeSource::Cli(_));
+        let payload = pipe_message.payload.clone().unwrap_or_default();
+        let mut should_render = false;
         match pipe_message.name.as_str() {
-            "slot_for_pane" => {
+            // AC: pane-pipe-api.toggle-pipe-invocation
+            "toggle" => {
+                should_render = self.handle_toggle();
+            }
+            "slot_for_pane" if is_cli => {
                 let output = parse_pane_id(&payload)
                     .and_then(|id| slot_for_pane(&self.store, id))
                     .map(|slot| slot.to_string())
                     .unwrap_or_default();
                 cli_pipe_output(&pipe_message.name, &output);
             }
-            "jump_pane" => {
+            "jump_pane" if is_cli => {
                 if let Some(id) = parse_pane_id(&payload) {
                     self.jump_focus_fullscreen(id);
                 }
             }
             _ => {}
         }
-        // Always release the CLI client, exactly once, whatever the arm above
+        // Always release a CLI client, exactly once, whatever the arm above
         // did (incl. the unrecognized-name no-op). The host's implicit release
         // proved racy on long-lived servers (2026-07-09 diagnosis: identical
         // back-to-back jump_pane pipes exited 0 then hung 124), stranding one
-        // zombie `zellij pipe` process per ntfy tap.
+        // zombie `zellij pipe` process per ntfy tap. Non-CLI sources get no
+        // CLI unblock (pane-pipe-api "non-CLI pipes unaffected").
         // AC: pane-pipe-api.cli-pipe-client-release
-        unblock_cli_pipe_input(&pipe_message.name);
-        // No re-render: neither handler changes plugin-visible UI state.
-        false
+        if is_cli {
+            unblock_cli_pipe_input(&pipe_message.name);
+        }
+        should_render
     }
 
     fn render(&mut self, rows: usize, cols: usize) {
@@ -560,6 +568,62 @@ impl State {
             self.dispatch_state.focused_pane_id,
         );
         reanchor_selected_to_focus(&mut self.dispatch_state, f_idx);
+    }
+
+    /// `toggle` pipe handler: gather ground truth via SYNCHRONOUS host
+    /// queries (never cached events — probes proved `TabUpdate`/`PaneUpdate`
+    /// caches freeze while suppressed and `Event::Visible` is never delivered
+    /// to floating plugin panes), let core pick the branch, execute it.
+    /// Returns whether a re-render is warranted (we just became visible).
+    ///
+    /// AC: pane-pipe-api.toggle-pipe-invocation
+    /// AC: pane-pipe-api.toggle-state-sync-query-verified
+    fn handle_toggle(&mut self) -> bool {
+        let own_id = get_plugin_ids().plugin_id;
+        // Fresh own-pane state: Some(is_suppressed) or None (query failed /
+        // cold-spawn window before the pane registers host-side).
+        let own_suppressed =
+            get_pane_info(zellij_tile::prelude::PaneId::Plugin(own_id)).map(|p| p.is_suppressed);
+        // Fresh invoking-tab position: get_focused_pane_info returns the
+        // STABLE TAB ID (screen active_tab_ids) — convert to a display
+        // position via get_tab_info before any position-based host call.
+        let focused_tab_position = get_focused_pane_info()
+            .ok()
+            .and_then(|(tab_id, _pane)| get_tab_info(tab_id))
+            .map(|t| t.position);
+        match toggle_plan(ToggleGroundTruth {
+            own_suppressed,
+            focused_tab_position,
+        }) {
+            ToggleAction::Hide => {
+                // Same canonical close path as Esc (mode-state-machine
+                // "Close consolidation" — unchanged semantics).
+                self.close_helper();
+                false
+            }
+            ToggleAction::ShowInPlace => {
+                // Position-correct host path (screen.focus_pane_with_id):
+                // finds the pane's tab including suppressed panes, navigates
+                // by tab.position, un-suppresses back to floating.
+                show_self(true);
+                true
+            }
+            ToggleAction::ShowThenRelocate {
+                target_tab_position,
+            } => {
+                // Mandatory ordering: un-suppress FIRST — the relocation
+                // host call cannot extract suppressed panes
+                // (extract_pane(_, dont_swap_if_suppressed=true) → None).
+                // Same-tab collapses into a harmless no-op relocation.
+                show_self(true);
+                break_panes_to_tab_with_index(
+                    &[zellij_tile::prelude::PaneId::Plugin(own_id)],
+                    target_tab_position,
+                    true,
+                );
+                true
+            }
+        }
     }
 }
 
