@@ -1,6 +1,6 @@
 ## 1. Risk probes (R2, R3 — evidence before wiring)
 
-- [ ] 1.1 Probe R2 (keybind-source pipe delivery/permission): in a scripted
+- [x] 1.1 Probe R2 (keybind-source pipe delivery/permission): in a scripted
   zellij session (tmux-hosted harness precedent), bind a key to
   `MessagePlugin "file:...harpoon.wasm" { name "toggle"; }`, drive the key,
   and confirm the pipe message reaches the loaded plugin (log line from the
@@ -11,7 +11,7 @@
   - files_allowed:
       - scripts/toggle-pipe-probe.sh
       - openspec/changes/pipe-toggle-invocation/**
-- [ ] 1.2 Probe R3 (suppressed pane visibility in `PaneManifest`): with the
+- [x] 1.2 Probe R3 (suppressed pane visibility in `PaneManifest`): with the
   plugin hidden via `hide_self()`, dump what the plugin's cached
   `PaneUpdate` manifest reports for its own pane (present/absent,
   `is_suppressed` or equivalent). Decide own-tab detection strategy: manifest
@@ -40,9 +40,14 @@
 
 ## 3. Plugin shim wiring
 
-- [ ] 3.1 Subscribe to `EventType::Visible` and maintain event-derived
-  visibility state (AC `pane-pipe-api.visibility-state-is-event-derived`);
-  never infer visibility from command history.
+- [ ] 3.1 Establish toggle state via synchronous host queries at pipe time
+  (AC `pane-pipe-api.toggle-state-sync-query-verified`):
+  `get_pane_info(PaneId::Plugin(own))` for suppressed/visible state,
+  `get_focused_pane_info()` → `get_tab_info(tab_id)` for the invoking tab's
+  position. Never read cached `TabUpdate`/`PaneUpdate` for toggle decisions
+  (probe evidence: caches freeze while suppressed) and never rely on
+  `Event::Visible` (probe evidence: only emitted to tiled plugin panes —
+  amended from the original event-derived design per task 1.1/1.2 findings).
   - intent: feature
   - files_allowed:
       - harpoon-plugin/src/main.rs
