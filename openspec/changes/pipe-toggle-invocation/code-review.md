@@ -1,12 +1,12 @@
 # Code Review
 
 **Change:** pipe-toggle-invocation
-**Verdict:** fail
+**Verdict:** pass
 **review_mode:** blind
 **reviewer-provenance:** openai-codex/gpt-5.6-sol, claude-bridge/claude-fable-5
 **Diff Base SHA:** 402ac1e2024982a72615203a11bfb3d5ff42311d
-**Reviewed Range:** 402ac1e2024982a72615203a11bfb3d5ff42311d..a8a1c25e1bdc8a2991ad02324d3214e105deb8ff
-**Attested HEAD:** a8a1c25e1bdc8a2991ad02324d3214e105deb8ff
+**Reviewed Range:** 402ac1e2024982a72615203a11bfb3d5ff42311d..fff2f3f5bb1620d05c2713367b98ecebc0af6b1a
+**Attested HEAD:** fff2f3f5bb1620d05c2713367b98ecebc0af6b1a
 **Baseline:** intent.md + proposal + specs + design + plan + tasks status
 **Generated:** 2026-07-11
 
@@ -21,6 +21,7 @@ objective correctness/security defect. P0/P1 findings gate; P2/P3 do not.
 |---|---|---|---|---|---|---|---|
 | 1 | blind | 0 | 3 | 3 | 1 | gpt-5.6-sol:fail, claude-fable-5:fail | a8a1c25e1bdc8a2991ad02324d3214e105deb8ff |
 | 2 | blind | 0 | 1 | 2 | 5 | gpt-5.6-sol:fail, claude-fable-5:pass | fd719aa551bce4d7a0feb1606a370ab583849aca |
+| 3 | blind | 0 | 0 | 2 | 5 | gpt-5.6-sol:pass, claude-fable-5:pass | fff2f3f5bb1620d05c2713367b98ecebc0af6b1a |
 
 Consolidation = max across reviewers per severity, no cross-reviewer finding
 matching. Full reviewer findings preserved at
@@ -67,9 +68,24 @@ residual risks.
   pane-loss defect (finding #5) — blocks the drift-case relocation branch and
   is the subject of the decision-audit landing.
 
+## Round 3 (quiet round — sealed)
+
+Both reviewers pass at fff2f3f5bb1620d05c2713367b98ecebc0af6b1a (P0+P1 = 0;
+findings files r3-sol.md, r3-fable.md). Round-3 advisories routed, none
+gating: pre-grant/cold-show shim decision residue + spawn-failure fallback
+(P2, already follow-ups #3/#4, reviewers concur 'deferred');
+fable P3s — pending_cold_show not disarmed by an intervening Hide inside the
+cold window; CLI-sourced toggle Respawn closes before the CLI unblock lands
+(keybind path unaffected); transient two-instance overlap window during
+respawn (~100ms); jump_focus_fullscreen response-decoding queries lack the
+new pre-grant panic guard (PRE-EXISTING at Diff Base) — routed to
+follow-ups #5-#8.
+
 ## Verdict rationale
 
-Round 1 consolidated fail (P1=3). All three P1s addressed; round 2 blocked on
-the owner ruling for the drift-case relocation mechanism (finding #5) — the
-frozen intent's "menu on the invoking tab regardless of id/position drift"
-outcome is unachievable with any zellij 0.44.3 plugin-API primitive.
+Round 1 consolidated fail (P1=3: stale judged inputs in attested tree,
+focused-vs-visible semantics, unrecorded evidence) — all fixed. Round 2
+split (sol fail P1=1: parked-tab focused-proxy poisoning via jump_pane cold
+spawn) — fixed with identity-verified recording + regression S7. Round 3
+quiet: both models pass, doneness satisfied (blind-single-judge,
+gpt-5.6-sol). Verdict: pass ⇔ no open P0/P1.
