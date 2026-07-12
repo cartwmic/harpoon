@@ -13,6 +13,8 @@ loop_max_iterations: 40
 validation_source_mode: required
 spec_level: spec-anchored
 doneness_mode: required
+loop_hold: true
+loop_hold_reason: "decision-audit landing: regression S5 exposed a THIRD upstream zellij id/position defect (break_multiple_panes_to_tab_with_index get_indexed_tab_mut is ID-keyed) that DESTROYS the relocated pane under drift — the frozen intent's 'menu on invoking tab regardless of id/position drift' outcome is unachievable via any zellij 0.44.3 plugin-API primitive; owner must rule on the drift-case mechanism (see audit in conversation + code-review.md finding #5)"
 ---
 
 <!-- authored: in-session -->
@@ -89,6 +91,20 @@ non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -
   observation deferred to runtime activation step 4 (README) with the
   frozen escalation trigger (worse than brief single-frame → report)
   restated there.
+- 2026-07-11 21:45 — Regression S5 (drifted invoking tab, added per fable#4)
+  exposed upstream zellij defect #3: `break_multiple_panes_to_tab_with_index`
+  existence-check + go_to_tab are POSITION-based but the final
+  `get_indexed_tab_mut(tab_index)` is `tabs.get_mut(&tab_index)` — STABLE-ID
+  keyed — so when the target position has no same-numbered tab id, the
+  extracted pane is silently DROPPED and the plugin instance dies (zellij
+  log `screen.rs:4336 Could not find tab with index: 1`; observed "Bye from
+  plugin"). Verified against v0.44.3 source. Consequence: drift-safe pane
+  relocation is impossible in the 0.44.3 plugin API (audited all pane/tab
+  movers: break_* is the only pane-to-tab primitive; FloatMultiplePanes is
+  in-tab; MessageToPlugin cannot self-respawn a same-alias instance).
+  Frozen-intent conflict → loop_hold set; decision-audit presented to owner.
+  S5 left failing by design — it correctly detects the defect; its expected
+  assertion depends on the ruling.
 - 2026-07-11 21:20 — Code-review round 1 (blind, 2 models) consolidated:
   P0=0 P1=3 P2=3 P3=1, both verdicts fail. Dispatch adapter reported both
   child runs as failed (bash exit 1) yet BOTH findings files were complete
