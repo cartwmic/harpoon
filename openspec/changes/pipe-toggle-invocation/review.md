@@ -115,6 +115,23 @@ non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -
   Frozen-intent conflict → loop_hold set; decision-audit presented to owner.
   S5 left failing by design — it correctly detects the defect; its expected
   assertion depends on the ruling.
+- 2026-07-12 07:40 — Respawn mechanism implemented (worktree 586c436):
+  core `ToggleAction::Respawn` + `parked_on_focused_tab` ground truth
+  (load-time parked-tab record, stale-safe — tab ids never reused);
+  shim `open_plugin_pane_floating(own_url from get_pane_info, verbatim
+  load config)` + `close_self`, safe degradation to `show_self` on spawn
+  failure. Regression 9/9 incl. S4 (cross-tab respawn), S5 (respawn under
+  drift), S6 (respawned instance still keybind-addressable — identity
+  preserved). Native 244 green, wasm clean. NEW findings en route:
+  (1) permission-DENIED response-decoding host calls PANIC the plugin (shim
+  unwraps an empty response) — all such queries now gated behind
+  `PermissionRequestResult(Granted)`; load()-time sync queries forbidden;
+  (2) respawn requires `PermissionType::OpenTerminalsOrPlugins` — added to
+  request_permission (Host Call Permission Completeness AC) + scripts +
+  README runtime activation (visible-pane regrant step);
+  (3) harness hazard: a STALE permissions.kdl entry for the same wasm path
+  made zellij show an unanswerable interactive prompt — seed logic now
+  rewrites (never skips) the entry.
 - 2026-07-11 21:20 — Code-review round 1 (blind, 2 models) consolidated:
   P0=0 P1=3 P2=3 P3=1, both verdicts fail. Dispatch adapter reported both
   child runs as failed (bash exit 1) yet BOTH findings files were complete
