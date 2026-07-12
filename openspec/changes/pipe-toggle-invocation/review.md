@@ -39,9 +39,9 @@ doneness_mode: required
 
 ## Diff Base + Worktree locator
 
-**Diff Base SHA:** <empty until apply captures it>
-**Worktree Path:** <empty until apply captures it>
-**Integration Branch:** <detected-at-capture>
+**Diff Base SHA:** 402ac1e2024982a72615203a11bfb3d5ff42311d
+**Worktree Path:** /Volumes/Workshop/git/harpoon--opsx-pipe-toggle-invocation
+**Integration Branch:** main
 
 ## Manual Adjustments
 
