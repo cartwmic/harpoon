@@ -55,6 +55,16 @@ struct State {
     /// filter mode; empty otherwise). Used by render and by handlers that
     /// need to resolve `selected → panes_idx`.
     last_filtered_indices: Vec<usize>,
+
+    /// Armed by a `toggle` pipe that arrived in the cold-spawn window (own
+    /// pane not yet registered host-side — `ToggleAction::ColdShow`).
+    /// Resolved on `Event::Timer` (a suppressed pane receives NO
+    /// TabUpdate/PaneUpdate events — probe-verified — but timer delivery is
+    /// direct) with FRESH sync queries, never cached event content.
+    /// AC: pane-pipe-api.toggle-pipe-invocation (cold-spawn scenario).
+    pending_cold_show: bool,
+    /// Bounded re-arm budget for the cold-show timer (0.2s ticks).
+    cold_show_retries: u8,
 }
 
 register_plugin!(State);
@@ -84,11 +94,21 @@ impl ZellijPlugin for State {
             EventType::PermissionRequestResult,
             EventType::SessionUpdate,
             EventType::RunCommandResult,
+            // Cold-show retry tick (pane-pipe-api.toggle-pipe-invocation):
+            // suppressed panes receive no state events, so the cold-spawn
+            // retry rides Event::Timer instead.
+            EventType::Timer,
         ]);
     }
 
     fn update(&mut self, event: Event) -> bool {
         let mut should_render = false;
+        // A cold-spawn toggle raced pane registration; any event (Timer is
+        // the guaranteed one — suppressed panes get no state events) means
+        // the host is alive — retry the show with fresh sync queries.
+        if self.resolve_pending_cold_show() {
+            should_render = true;
+        }
         match event {
             Event::TabUpdate(tab_info) => {
                 self.tab_info = Some(tab_info);
@@ -580,19 +600,26 @@ impl State {
     /// AC: pane-pipe-api.toggle-state-sync-query-verified
     fn handle_toggle(&mut self) -> bool {
         let own_id = get_plugin_ids().plugin_id;
+        let own_pane_id = zellij_tile::prelude::PaneId::Plugin(own_id);
         // Fresh own-pane state: Some(is_suppressed) or None (query failed /
-        // cold-spawn window before the pane registers host-side).
-        let own_suppressed =
-            get_pane_info(zellij_tile::prelude::PaneId::Plugin(own_id)).map(|p| p.is_suppressed);
-        // Fresh invoking-tab position: get_focused_pane_info returns the
-        // STABLE TAB ID (screen active_tab_ids) — convert to a display
-        // position via get_tab_info before any position-based host call.
-        let focused_tab_position = get_focused_pane_info()
-            .ok()
-            .and_then(|(tab_id, _pane)| get_tab_info(tab_id))
+        // cold-spawn window before the pane registers host-side). NOTE:
+        // is_suppressed=false does NOT mean user-visible — a cold-spawned
+        // pane parks floating+unfocused; the focused-pane identity below is
+        // the "open in front of the user" signal.
+        let own_suppressed = get_pane_info(own_pane_id).map(|p| p.is_suppressed);
+        // One sync query serves both: the focused pane identity and the
+        // invoking tab. get_focused_pane_info returns the STABLE TAB ID
+        // (screen active_tab_ids) — convert to a display position via
+        // get_tab_info before any position-based host call.
+        let focused = get_focused_pane_info().ok();
+        let own_is_focused = focused.as_ref().map(|(_, pane_id)| *pane_id == own_pane_id);
+        let focused_tab_position = focused
+            .as_ref()
+            .and_then(|(tab_id, _pane)| get_tab_info(*tab_id))
             .map(|t| t.position);
         match toggle_plan(ToggleGroundTruth {
             own_suppressed,
+            own_is_focused,
             focused_tab_position,
         }) {
             ToggleAction::Hide => {
@@ -623,7 +650,59 @@ impl State {
                 );
                 true
             }
+            ToggleAction::ColdShow => {
+                // Cold-spawn window: the pipe can precede host-side pane
+                // registration, making this show_self a possible no-op
+                // (regression run 2026-07-11). Attempt it (harmless either
+                // way) and arm the timer-driven retry — suppressed panes
+                // receive no TabUpdate/PaneUpdate, so a timer is the only
+                // reliable wake-up.
+                show_self(true);
+                self.pending_cold_show = true;
+                self.cold_show_retries = 25; // 25 × 0.2s = 5s budget
+                set_timeout(0.2);
+                true
+            }
         }
+    }
+
+    /// Resolve an armed cold-spawn show at event arrival: re-query the own
+    /// pane FRESH; once it exists, show it (and relocate to the freshly
+    /// queried focused tab — the invoking tab; the user cannot have moved in
+    /// the ~tens-of-ms registration window). Never reads cached event
+    /// content. Returns whether a show was issued.
+    fn resolve_pending_cold_show(&mut self) -> bool {
+        if !self.pending_cold_show {
+            return false;
+        }
+        let own_id = get_plugin_ids().plugin_id;
+        let own_pane = get_pane_info(zellij_tile::prelude::PaneId::Plugin(own_id));
+        let Some(pane) = own_pane else {
+            // Still unregistered — re-arm the timer within budget.
+            if self.cold_show_retries > 0 {
+                self.cold_show_retries -= 1;
+                set_timeout(0.2);
+            } else {
+                self.pending_cold_show = false; // budget exhausted — give up
+            }
+            return false;
+        };
+        self.pending_cold_show = false;
+        // show_self on an already-visible pane merely re-focuses — harmless
+        // if the initial attempt won the race.
+        show_self(true);
+        if pane.is_suppressed {
+            if let Ok((tab_id, _)) = get_focused_pane_info() {
+                if let Some(tab) = get_tab_info(tab_id) {
+                    break_panes_to_tab_with_index(
+                        &[zellij_tile::prelude::PaneId::Plugin(own_id)],
+                        tab.position,
+                        true,
+                    );
+                }
+            }
+        }
+        true
     }
 }
 

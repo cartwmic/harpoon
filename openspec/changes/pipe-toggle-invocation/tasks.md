@@ -65,7 +65,7 @@
 
 ## 4. Regression scenarios (validation source) + R1 evidence
 
-- [ ] 4.1 Author `scripts/toggle-pipe-regression.sh` (tmux-hosted harness;
+- [x] 4.1 Author `scripts/toggle-pipe-regression.sh` (tmux-hosted harness;
   precedent `scripts/fullscreen-regression.sh` and
   `scripts/cli-pipe-permission-regression.sh`) asserting, against a freshly
   built harpoon.wasm with a `MessagePlugin`-style toggle invocation: (a)
@@ -76,7 +76,7 @@
   - intent: feature
   - files_allowed:
       - scripts/toggle-pipe-regression.sh
-- [ ] 4.2 Run `scripts/toggle-pipe-regression.sh`; record the pass AND the
+- [x] 4.2 Run `scripts/toggle-pipe-regression.sh`; record the pass AND the
   R1 flicker observation (cross-tab show-then-relocate visual artifact:
   none / single-frame / worse — escalate if worse) in review.md Execution
   Notes. This is the agent-independent validation source

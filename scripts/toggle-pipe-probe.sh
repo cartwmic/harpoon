@@ -141,7 +141,7 @@ CFG="$PROBE_DIR/probe-config.kdl"
 cat > "$CFG" <<EOF
 keybinds {
     shared_except "locked" {
-        bind "F6" { MessagePlugin "file:$WASM" { name "toggle"; }; }
+        bind "F6" { MessagePlugin "file:$WASM" { name "toggle"; floating true; }; }
     }
 }
 EOF

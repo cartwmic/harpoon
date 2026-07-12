@@ -1,0 +1,161 @@
+#!/usr/bin/env bash
+# toggle-pipe-regression.sh — regression scenario for the
+# pipe-toggle-invocation change (task 4.1).
+#
+# AC: pane-pipe-api.toggle-pipe-invocation
+# AC: pane-pipe-api.toggle-state-sync-query-verified
+#
+# Drives a REAL zellij session (tmux-hosted; precedent:
+# scripts/cli-pipe-permission-regression.sh) against the freshly built
+# harpoon.wasm with a `MessagePlugin`-style `toggle` keybind (F6) and asserts:
+#   S1  cold spawn: first F6 shows the menu on the invoking tab (no cached
+#       event state exists at that point — pipe precedes first TabUpdate)
+#   S2  visible → toggle hides (menu leaves every tab's floating set)
+#   S3  same-tab re-invoke after Esc-close shows menu+view on the invoking tab
+#   S4  cross-tab invoke AFTER a tab close (forcing tab-id/position drift)
+#       lands menu AND view on the invoking tab — the double-defect killer:
+#       zellij's focus_plugin_pane would jump the view to a stale-id tab and
+#       strand the menu on its home tab; the toggle pipe never calls it
+#
+# Ground truth comes from `zellij action dump-layout`: the focused tab carries
+# focus=true and a visible harpoon menu appears as a floating plugin pane in
+# exactly one tab's floating_panes block. Suppressed (hidden) panes are not
+# part of the serialized layout.
+#
+# Requirements: tmux, zellij >= 0.44.3, cargo + wasm32-wasip1 target.
+# Safe to re-run; cleans up its session and restores plugin permissions.
+set -euo pipefail
+
+REPO_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
+WASM="$REPO_ROOT/target/wasm32-wasip1/release/harpoon.wasm"
+SES="htoggle$$"
+HOST="htoggle-host$$"
+PASS=0; FAIL=0
+
+say() { printf '%s\n' "$*"; }
+scr() { tmux capture-pane -t "$HOST" -p; }
+za()  { zellij -s "$SES" action "$@"; }
+
+assert() {
+  if [ "$2" -eq 0 ]; then say "PASS $1"; PASS=$((PASS+1)); else say "FAIL $1"; FAIL=$((FAIL+1)); fi
+}
+
+layout() { za dump-layout; }
+
+# Name of the tab carrying focus=true in the dumped layout.
+focused_tab() {
+  layout | sed -nE 's/.*tab name="([^"]+)".*focus=true.*/\1/p' | head -1
+}
+
+# Name of the tab whose block contains the harpoon floating plugin pane
+# (empty when hidden/suppressed — suppressed panes are not serialized).
+harpoon_tab() {
+  layout | awk '
+    /^[[:space:]]*tab name="/ {
+      match($0, /name="[^"]+"/); tab = substr($0, RSTART+6, RLENGTH-7)
+    }
+    /harpoon\.wasm/ { if (tab != "") { print tab; exit } }
+  '
+}
+
+# Wait until focused_tab==$1 and harpoon_tab==$2 ("" = hidden); retry loop
+# absorbs zellij's asynchronous layout settling.
+expect_state() { # expect_state <label> <focused> <harpoon-tab-or-empty>
+  local label="$1" want_focus="$2" want_harpoon="$3" f h try
+  for try in 1 2 3 4 5 6; do
+    f="$(focused_tab)"; h="$(harpoon_tab)"
+    [ "$f" = "$want_focus" ] && [ "$h" = "$want_harpoon" ] && { assert "$label (focus=$f harpoon=${h:-hidden})" 0; return; }
+    sleep 1
+  done
+  say "  state: focused_tab='$f' harpoon_tab='${h:-<hidden>}' wanted focus='$want_focus' harpoon='${want_harpoon:-<hidden>}'"
+  assert "$label" 1
+}
+
+press() { tmux send-keys -t "$HOST" "$1"; sleep 2; }
+
+cleanup() {
+  tmux kill-session -t "$HOST" 2>/dev/null || true
+  zellij kill-session "$SES" 2>/dev/null || true
+  sleep 1
+  zellij delete-session "$SES" --force >/dev/null 2>&1 || true
+  if [ -n "${PERM_CREATED:-}" ]; then rm -f "$PERM_FILE";
+  elif [ -n "${PERM_BAK:-}" ] && [ -f "$PERM_BAK" ]; then cp "$PERM_BAK" "$PERM_FILE"; fi
+  rm -f "$CFG"
+}
+trap cleanup EXIT
+
+# ── build + permission seeding ─────────────────────────────────────────────
+say "building wasm..."
+cargo build --release -p harpoon --target wasm32-wasip1 \
+  --manifest-path "$REPO_ROOT/Cargo.toml" >/dev/null
+
+PERM_FILE="$(zellij setup --check 2>/dev/null | sed -n 's/^\[CACHE DIR\]: //p')/permissions.kdl"
+if [ -f "$PERM_FILE" ]; then
+  PERM_BAK="$(mktemp)"; cp "$PERM_FILE" "$PERM_BAK"
+else
+  mkdir -p "$(dirname "$PERM_FILE")"; : > "$PERM_FILE"; PERM_CREATED=1
+fi
+grep -qF "\"$WASM\"" "$PERM_FILE" || printf '"%s" {\n    ChangeApplicationState\n    RunCommands\n    ReadApplicationState\n    ReadCliPipes\n}\n' "$WASM" >> "$PERM_FILE"
+
+# ── production-shaped keybind: MessagePlugin toggle pipe on F6 ─────────────
+# BSD mktemp requires trailing Xs (a .kdl suffix template silently creates a
+# literal file and collides on re-run); zellij accepts any extension.
+CFG="$(mktemp "${TMPDIR:-/tmp}/harpoon-toggle-cfg.XXXXXX")"
+cat > "$CFG" <<EOF
+keybinds {
+    shared_except "locked" {
+        bind "F6" { MessagePlugin "file:$WASM" { name "toggle"; floating true; }; }
+    }
+}
+EOF
+
+# ── session topology: three named tabs; close the middle one for id drift ──
+tmux new-session -d -s "$HOST" -x 180 -y 45 "zellij --config $CFG -s $SES"
+for try in 1 2 3 4 5 6 7 8 9 10; do
+  zellij list-sessions 2>/dev/null | grep -q "$SES" && break
+  sleep 2
+done
+zellij list-sessions 2>/dev/null | grep -q "$SES" || { say "FATAL zellij session never came up"; exit 1; }
+sleep 2
+za rename-tab T1; sleep 1
+za new-tab; sleep 1; za rename-tab T2; sleep 1
+za new-tab; sleep 1; za rename-tab T3; sleep 1
+
+# ── S1: cold spawn shows on the invoking tab (T3) ──────────────────────────
+press F6
+expect_state "S1 cold-spawn toggle shows menu+view on invoking tab T3" T3 T3
+
+# ── S2: visible → toggle hides ─────────────────────────────────────────────
+press F6
+expect_state "S2 visible toggle hides the menu (view stays on T3)" T3 ""
+
+# ── S3: same-tab re-invoke after Esc-close ─────────────────────────────────
+press F6
+expect_state "S3-pre menu shown again on T3" T3 T3
+# Esc-close (mode-state-machine Close consolidation path), with retry —
+# Esc delivery races zellij focus settling (see toggle-pipe-probe.sh).
+HIDDEN=""
+for attempt in 1 2 3 4 5; do
+  press Escape
+  [ -z "$(harpoon_tab)" ] && { HIDDEN=1; break; }
+  say "NOTE Esc attempt $attempt did not hide; refocusing via F6 x2"
+  press F6; press F6
+done
+[ -n "$HIDDEN" ] || { say "FATAL cannot reach hidden state via Esc"; exit 1; }
+press F6
+expect_state "S3 same-tab re-invoke after Esc-close lands on T3" T3 T3
+press F6   # hide again for S4
+expect_state "S3-post hidden again (parked on T3)" T3 ""
+
+# ── S4: cross-tab invoke after tab close (id/position drift) ───────────────
+# Close T2: T3's stable id now exceeds its position — the exact drift that
+# made zellij's focus_plugin_pane jump to an unrelated tab ("Amazon" bug).
+za go-to-tab-name T2; sleep 1
+za close-tab; sleep 2
+za go-to-tab-name T1; sleep 1
+press F6
+expect_state "S4 cross-tab invoke under id/position drift lands menu+view on T1" T1 T1
+
+say "----"
+say "scenarios: $PASS passed, $FAIL failed"
+[ "$FAIL" -eq 0 ]
