@@ -80,8 +80,10 @@ spike-probed (`/tmp/spike-handoff/`, 2026-07-13).
   last resort. B: fuzzy title matching. **Resolved: A** — B adds
   wrong-pane-match risk, violating restore best-effort semantics; exact
   mechanism detailed at design/spec level within the frozen constraint.
-- **Q3 — duplicate-toggle window?** A: successor ignores toggle pipes until
-  first render completes post-bootstrap-or-load. B: time-based debounce.
-  **Resolved: A** — deterministic state condition, natively testable in
-  core; timers are the flakier path (established invariant: suppressed panes
-  get no events, timers already overloaded).
+- **Q3 — duplicate-toggle key?** A: deterministic pipe identity — hand-off
+  payload carries the sender-handled CLI pipe id; successor ignores exactly
+  one toggle from that source. B: time-based debounce or shown/readiness
+  state condition. **Resolved: A** — probe shows the re-delivery arrives
+  ~380ms after load with the SAME pipe id, AFTER the menu is shown, so
+  readiness/timing proxies cannot distinguish it from a genuine re-invoke;
+  identity match is exact, one-shot, natively testable.

@@ -65,25 +65,30 @@ remains the cold-boot fallback whenever no bootstrap payload arrives.
 THE successor SHALL NOT hide its just-shown menu in response to a stale
 toggle: IF a queued or stale `toggle` pipe message is re-delivered to a
 freshly respawned successor before the user has interacted with the
-just-shown menu, THEN the successor SHALL ignore it (probe
-evidence 2026-07-13: the in-flight invocation pipe that triggered the
-respawn is re-delivered to the successor ~380ms after load). The
-ignore-vs-honor decision SHALL be pure decision logic in `harpoon-core`,
-keyed on a deterministic state condition (readiness after
-bootstrap-or-load completion and first shown render), never on wall-clock
-debounce.
+just-shown menu, THEN the successor SHALL ignore it while still releasing
+the blocked CLI client (probe evidence 2026-07-13: the in-flight CLI
+invocation pipe that triggered the respawn is re-delivered to the successor
+~380ms after load, carrying the SAME pipe id). The ignore-vs-honor decision
+SHALL be pure decision logic in `harpoon-core`, keyed on deterministic pipe
+identity — the hand-off payload carries the pipe id the sender already
+handled and the successor ignores exactly one toggle from that source —
+never on wall-clock debounce (and never on a shown/readiness proxy: the
+re-delivery arrives AFTER the menu is shown, so timing/readiness conditions
+cannot distinguish it from a genuine re-invoke).
 
 #### Scenario: re-delivered invocation pipe does not hide the menu
 - **GIVEN** the respawn branch just spawned a successor and the successor
   has shown its menu
 - **WHEN** the original in-flight `toggle` pipe message is re-delivered to
-  the successor immediately after load
+  the successor immediately after load (same CLI pipe id the outgoing
+  instance already handled)
 - **THEN** the menu SHALL remain shown (the stale toggle is ignored)
+- **AND** the blocked CLI pipe client SHALL still be released
 
 #### Scenario: genuine user re-invoke still hides
-- **GIVEN** the successor's menu is shown and the duplicate-delivery window
-  has passed (readiness condition satisfied)
-- **WHEN** the user presses the keybind again (a new `toggle` pipe message)
+- **GIVEN** the successor's menu is shown
+- **WHEN** the user presses the keybind again (a new `toggle` pipe message —
+  keybind-sourced or a NEW CLI pipe id, never the sender-handled id)
 - **THEN** the visible-and-focused hide branch SHALL run as specified by
   Toggle Pipe Invocation
 
