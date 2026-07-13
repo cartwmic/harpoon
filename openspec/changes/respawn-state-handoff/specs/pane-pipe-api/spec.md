@@ -27,9 +27,11 @@ remains the cold-boot fallback whenever no bootstrap payload arrives.
   bookmark store
 - **WHEN** a `toggle` pipe message arrives while the client's active tab is
   B (B ≠ A) and the respawn branch runs
-- **THEN** the successor's menu SHALL present the full persisted
-  jump-target list on its first render (no empty-list flash, no
-  invoke-again-to-recover)
+- **THEN** the successor's menu SHALL present every persisted jump-target
+  row on its first actual render (live pane where resolved, saved
+  `tab_name | pane_title` placeholder where the host manifest is not ready)
+- **AND** rendering SHALL remain suppressed rather than expose an empty or
+  partial projection (no invoke-again-to-recover)
 
 #### Scenario: bootstrap arriving pre-grant is adopted safely
 - **GIVEN** the successor has loaded but its permission grant has not yet
@@ -67,6 +69,8 @@ remains the cold-boot fallback whenever no bootstrap payload arrives.
   `OpenTerminalsOrPlugins` and `MessageAndLaunchOtherPlugins`)
 - **THEN** the plugin SHALL invoke no gated response-decoding host call (no
   panic) and SHALL use the deny-safe show-in-place fallback
+- **AND** denial SHALL resolve render readiness so the status-quo empty menu
+  UI is visible rather than a permanently blank/suppressed pane
 - **AND** queued CLI messages SHALL remain unexecuted rather than assume the
   denied query/output/unblock capabilities
 

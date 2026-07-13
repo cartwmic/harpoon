@@ -29,19 +29,19 @@
   - intent: feature
   - files_allowed:
       - harpoon-core/**
-- [ ] 2.3 Destructive save guard: pure decisions forbid shrinking saves and
-  preserve bookmarks in memory until BOTH a resolved disk load AND a full
-  pane manifest (coverage of every known tab) have been observed;
-  additive/reordering mutations stay allowed (unknown-baseline flush queues
-  until reconcile); pruning resumes after both observed. Tests cite
-  `reorder.destructive-save-guard`.
+- [ ] 2.3 Destructive save guard: pure core decisions own complete save
+  policy, forbid shrinking saves and preserve bookmarks in memory until
+  BOTH resolved disk + full manifest (every known tab); queue unknown-
+  baseline flush; and release deferred disappeared-pane pruning once ready.
+  Tests cite `reorder.destructive-save-guard`.
   - intent: fix
   - files_allowed:
       - harpoon-core/**
-- [ ] 2.4 Restore identity hardening: id-first resolution carries through
-  the hand-off payload (successor resolves by id without title matching);
-  resolved bookmarks refresh persisted `(tab_name, pane_title)` on observed
-  drift; freeze/placeholder/best-effort semantics regress nothing. Tests
+- [ ] 2.4 Restore identity hardening: same-session id-first resolution
+  carries through hand-off; disk-parsed ids clear as generation-untrusted
+  before fallback restore/merge/shrink comparison; resolved bookmarks
+  refresh persisted `(tab_name, pane_title)` on observed drift; freeze/
+  placeholder/best-effort semantics regress nothing. Tests
   cite `reorder.restore-identity-tracks-live-panes`.
   - intent: fix
   - files_allowed:
@@ -82,10 +82,11 @@
 
 - [ ] 4.1 Extend `scripts/toggle-pipe-regression.sh` (tmux-hosted scratch
   sessions ONLY): (a) cross-tab respawn presents persisted targets on first
-  render (plus deterministic render-gate instrumentation); (b) stale
+  render (plus deterministic full-row-projection instrumentation); (b) stale
   re-delivered toggle does not hide the menu; (c) prune-guard — disk file
-  never shrinks during the early-save window (plus deterministic partial-
-  manifest instrumentation); (d) aggregate permission denial is deny-safe
+  never shrinks during early-save window (plus deterministic partial-
+  manifest, deferred-prune, and stale-id-collision instrumentation); (d)
+  aggregate permission denial resolves to visible empty UI and is deny-safe
   (no panic, session/plugin survive).
   - intent: feature
   - files_allowed:

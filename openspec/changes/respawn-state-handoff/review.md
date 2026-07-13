@@ -94,6 +94,23 @@ immutable from here. -->
   preserve bookmarks in memory as well as suppress disk writes until BOTH
   that coverage and independent disk resolution hold.
 
+### SE-3 — pane-id trust is scoped to one zellij session generation
+
+- **Trigger:** blind code-review round 2 P0/P1 found reused persisted pane ids
+  could defeat shrink detection and bind cross-restart restore to an unrelated
+  pane before fallback.
+- **Evidence:** `PaneBookmark` already documents id as session-local/not
+  globally unique; the frozen F3 states ids reset on restart. Persistence v2
+  carries no session-generation token, so equality of a disk id with a live
+  id cannot prove identity. Targeted bootstrap differs: predecessor and
+  successor coexist in the SAME generation, so carried ids are trustworthy.
+- **Substitution:** clear pane ids parsed from disk before cold restore,
+  MergeMissing, or persistence-baseline comparison; compare mixed current-id/
+  no-id rows by refreshed fallback identity. Preserve id-first behavior for
+  targeted bootstrap and already-resolved live memory. This narrows the
+  original unqualified "id-first" wording to the only provable trust domain
+  and directly enforces F3's restart fallback outcome.
+
 ## Execution Notes
 
 <!-- Transient observations appended during apply. One-line entries when a
@@ -138,6 +155,16 @@ non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -
   without queueing, S7 cold jump was dropped; with queue+post-grant drain,
   S7 passes and every drained CLI client follows the normal exactly-once
   release path.
+- 2026-07-13 — Blind code-review round 2 at worktree `5e6692c`: both valid
+  reviewers fail; max P0=2/P1=5/P2=3/P3=3; designated doneness = not. One
+  initial fable dispatch timed out without a findings file and was INVALID;
+  same blind round re-dispatched with unchanged dual-tree snapshots.
+  Fix `3708e68`: full-row first-render predicate + saved-identity placeholder
+  text; generation-untrusted disk-id clearing; mixed id/no-id reconciliation;
+  v1 known baseline; complete core-owned save decision; deferred prune queue
+  released after readiness; denial renders empty UI; plugin-only bootstrap;
+  cached-grant bootstrap starts disk reconcile. Core 264/264, wasm clean,
+  expanded scratch regression 25/25.
 
 ## Fidelity Round Ledger
 
