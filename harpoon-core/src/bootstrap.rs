@@ -117,15 +117,18 @@ pub enum DiskLoadDecision {
     /// keep the mutations AND append disk bookmarks missing from memory
     /// (a late disk result reconciles; it never clobbers newer mutations).
     MergeMissing,
-    /// A bootstrap payload was adopted — it was the sender's live superset
-    /// of disk at send time; the stale disk result adds nothing.
-    Ignore,
+    /// A bootstrap payload was adopted — preserve it verbatim (the sender's
+    /// live state is newer than disk), but consume the late disk result as
+    /// the persistence baseline. This is reconciliation, not a dropped
+    /// result: it completes disk readiness and seeds shrink detection while
+    /// never replacing/adjoining stale disk rows into newer memory.
+    ReconcileBaseline,
 }
 
 /// AC `pane-pipe-api.respawn-state-hand-off` (late-disk-load scenario).
 pub fn disk_load_decision(state: &StoreBootState) -> DiskLoadDecision {
     if state.adopted {
-        DiskLoadDecision::Ignore
+        DiskLoadDecision::ReconcileBaseline
     } else if state.mutated {
         DiskLoadDecision::MergeMissing
     } else {
@@ -200,7 +203,31 @@ pub fn is_shrinking_save(last_persisted: &[PaneBookmark], candidate: &[PaneBookm
 /// manifest. (An adopted bootstrap counts as the disk baseline — the
 /// sender's disk was current at send time.)
 pub fn shrinking_save_allowed(state: &StoreBootState) -> bool {
-    (state.disk_resolved || state.adopted) && state.manifest_seen
+    // Frozen intent + reorder.destructive-save-guard require BOTH an
+    // independently RESOLVED disk load and a FULL manifest. Adoption is a
+    // usable render/bootstrap baseline, but never substitutes for the disk
+    // readiness half of this destructive operation.
+    state.disk_resolved && state.manifest_seen
+}
+
+/// Whether a PaneUpdate snapshot covers every tab position currently known
+/// from TabUpdate. This is the strongest verifiable "full pane manifest"
+/// signal zellij 0.44.3 exposes: PaneUpdate is a full snapshot by API shape,
+/// and cross-tab completeness means every known tab has a manifest entry.
+/// Empty tab lists/manifests are never ready.
+pub fn manifest_covers_tabs(manifest_positions: &[usize], tab_positions: &[usize]) -> bool {
+    !tab_positions.is_empty()
+        && tab_positions
+            .iter()
+            .all(|tab| manifest_positions.iter().any(|seen| seen == tab))
+}
+
+/// Suppress user-visible menu rendering until one authoritative store source
+/// has resolved. A successor's first ACTUAL render therefore contains the
+/// adopted payload (cross-tab respawn) or disk-loaded state (cold boot),
+/// never an empty intermediate list.
+pub fn store_ready_to_render(state: &StoreBootState) -> bool {
+    state.adopted || state.disk_resolved
 }
 
 #[cfg(test)]
@@ -269,9 +296,15 @@ mod tests {
     fn late_disk_load_never_clobbers_adopted_store() {
         // pane-pipe-api.respawn-state-hand-off (late disk load scenario)
         let state = StoreBootState { adopted: true, ..Default::default() };
-        assert_eq!(disk_load_decision(&state), DiskLoadDecision::Ignore);
+        assert_eq!(
+            disk_load_decision(&state),
+            DiskLoadDecision::ReconcileBaseline
+        );
         let state = StoreBootState { adopted: true, mutated: true, ..Default::default() };
-        assert_eq!(disk_load_decision(&state), DiskLoadDecision::Ignore);
+        assert_eq!(
+            disk_load_decision(&state),
+            DiskLoadDecision::ReconcileBaseline
+        );
     }
 
     #[test]
@@ -362,10 +395,35 @@ mod tests {
             manifest_seen: true,
             ..Default::default()
         }));
-        // Adopted bootstrap counts as the disk baseline.
-        assert!(shrinking_save_allowed(&StoreBootState {
+        // Adoption never substitutes for an independently-resolved disk
+        // load (frozen intent: BOTH resolved disk + full manifest).
+        assert!(!shrinking_save_allowed(&StoreBootState {
             adopted: true,
             manifest_seen: true,
+            ..Default::default()
+        }));
+    }
+
+    #[test]
+    fn full_manifest_requires_coverage_of_every_known_tab() {
+        // reorder.destructive-save-guard (partial-manifest window)
+        assert!(!manifest_covers_tabs(&[], &[0]));
+        assert!(!manifest_covers_tabs(&[0], &[]));
+        assert!(!manifest_covers_tabs(&[0], &[0, 1]));
+        assert!(manifest_covers_tabs(&[0, 1], &[0, 1]));
+        assert!(manifest_covers_tabs(&[2, 0, 1], &[0, 1, 2]));
+    }
+
+    #[test]
+    fn first_render_waits_for_bootstrap_or_disk() {
+        // pane-pipe-api.respawn-state-hand-off (no empty first render)
+        assert!(!store_ready_to_render(&StoreBootState::default()));
+        assert!(store_ready_to_render(&StoreBootState {
+            adopted: true,
+            ..Default::default()
+        }));
+        assert!(store_ready_to_render(&StoreBootState {
+            disk_resolved: true,
             ..Default::default()
         }));
     }

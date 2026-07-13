@@ -34,9 +34,9 @@ pub mod slot;
 pub use bookmark::{BookmarkStore, PaneBookmark};
 pub use bootstrap::{
     bootstrap_arrival_decision, decode_bootstrap, disk_load_decision, encode_bootstrap,
-    is_shrinking_save, merge_missing, shrinking_save_allowed, AdoptDecision, BootstrapPayload,
-    DiskLoadDecision, DuplicateToggleGuard, StoreBootState, BOOTSTRAP_PIPE_NAME,
-    BOOTSTRAP_VERSION,
+    is_shrinking_save, manifest_covers_tabs, merge_missing, shrinking_save_allowed,
+    store_ready_to_render, AdoptDecision, BootstrapPayload, DiskLoadDecision,
+    DuplicateToggleGuard, StoreBootState, BOOTSTRAP_PIPE_NAME, BOOTSTRAP_VERSION,
 };
 pub use command::handle_command_key;
 pub use config::{Config, MatcherKind};

@@ -85,6 +85,20 @@ say "building wasm..."
 cargo build --release -p harpoon --target wasm32-wasip1 \
   --manifest-path "$REPO_ROOT/Cargo.toml" >/dev/null
 
+# Deterministic instrumentation for host states the zellij public API cannot
+# force from a scenario client:
+# - first ACTUAL render is suppressed until bootstrap/disk readiness;
+# - a manifest is not "full" until it covers every known tab position.
+# These are core decisions, not shim guesses (Constitution I).
+CORE_TEST_RC=0
+cargo test -p harpoon-core --manifest-path "$REPO_ROOT/Cargo.toml" \
+  first_render_waits_for_bootstrap_or_disk >/dev/null 2>&1 || CORE_TEST_RC=$?
+assert "S0 first-render gate deterministic instrumentation" "$CORE_TEST_RC"
+CORE_TEST_RC=0
+cargo test -p harpoon-core --manifest-path "$REPO_ROOT/Cargo.toml" \
+  full_manifest_requires_coverage_of_every_known_tab >/dev/null 2>&1 || CORE_TEST_RC=$?
+assert "S0 partial-manifest prune guard deterministic instrumentation" "$CORE_TEST_RC"
+
 PERM_FILE="$(zellij setup --check 2>/dev/null | sed -n 's/^\[CACHE DIR\]: //p')/permissions.kdl"
 if [ -f "$PERM_FILE" ]; then
   PERM_BAK="$(mktemp)"; cp "$PERM_FILE" "$PERM_BAK"
@@ -293,10 +307,47 @@ BM_AFTER="$(count_bm)"
 assert "S10 persisted bookmarks never shrink across respawn cycles (before=$BM_BEFORE after=$BM_AFTER)" \
   "$([ "$BM_AFTER" -ge "$BM_BEFORE" ] && [ "$BM_BEFORE" -ge 1 ]; echo $?)"
 
-# (Permission-denied degrade is NOT scriptable end-to-end: an unseeded
-# permission makes zellij raise an interactive prompt the scripted session
-# can never answer — the deny path is grant-gated in the shim and covered
-# by native core tests + the pre-grant deny-safe adoption design.)
+# ── S11: aggregate permission denial is deny-safe (scope expansion #1) ──
+# Zellij 0.44.3 returns ONE PermissionRequestResult for the whole vector and
+# blocks plugin events while the prompt is open; it cannot report "spawn
+# granted, hand-off denied" independently. Exercise the feasible degrade:
+# remove the seed, answer n in a visible scratch pane, assert session/plugin
+# survive and no new PANIC IN PLUGIN line appears. Denied aggregate uses the
+# deny-safe show-in-place path; no response-decoding host call runs.
+SES3="htoggled$$"
+HOST3="htoggled-host$$"
+cleanup3() {
+  tmux kill-session -t "$HOST3" 2>/dev/null || true
+  zellij kill-session "$SES3" 2>/dev/null || true
+  sleep 1
+  zellij delete-session "$SES3" --force >/dev/null 2>&1 || true
+}
+trap 'cleanup; cleanup2; cleanup3' EXIT
+# Remove exactly this wasm's seeded block so the permission UI appears.
+awk -v wasm="$WASM" 'BEGIN{skip=0} $0 == "\"" wasm "\" {" {skip=1; next} skip && /^\}/ {skip=0; next} !skip {print}' "$PERM_FILE" > "$PERM_FILE.tmp" && mv "$PERM_FILE.tmp" "$PERM_FILE"
+LOG_FILE=""
+for d in "${TMPDIR:-/tmp}" /tmp /var/folders/*/*/T; do
+  [ -f "$d/zellij-$(id -u)/zellij-log/zellij.log" ] && { LOG_FILE="$d/zellij-$(id -u)/zellij-log/zellij.log"; break; }
+done
+PANIC_BEFORE=0
+[ -n "$LOG_FILE" ] && PANIC_BEFORE="$(grep -c "PANIC IN PLUGIN" "$LOG_FILE" 2>/dev/null || true)"
+tmux new-session -d -s "$HOST3" -x 180 -y 45 "zellij --config $CFG -s $SES3"
+for try in 1 2 3 4 5 6 7 8 9 10; do
+  zellij list-sessions 2>/dev/null | grep -q "$SES3" && break
+  sleep 1
+done
+sleep 2
+tmux send-keys -t "$HOST3" Escape; sleep 1 # dismiss About Zellij tip
+# Cold invoke opens the permission UI in this visible plugin pane.
+tmux send-keys -t "$HOST3" F6; sleep 2
+tmux send-keys -t "$HOST3" n; sleep 3
+DENIED_LAYOUT="$(zellij -s "$SES3" action dump-layout 2>/dev/null || true)"
+DENIED_PANE_RC=1; echo "$DENIED_LAYOUT" | grep -q "harpoon.wasm" && DENIED_PANE_RC=0
+PANIC_AFTER="$PANIC_BEFORE"
+[ -n "$LOG_FILE" ] && PANIC_AFTER="$(grep -c "PANIC IN PLUGIN" "$LOG_FILE" 2>/dev/null || true)"
+assert "S11 aggregate permission denial leaves harpoon pane/session alive" "$DENIED_PANE_RC"
+assert "S11 aggregate permission denial adds no plugin panic (before=$PANIC_BEFORE after=$PANIC_AFTER)" \
+  "$([ "$PANIC_AFTER" -eq "$PANIC_BEFORE" ]; echo $?)"
 
 say "----"
 say "scenarios: $PASS passed, $FAIL failed"
