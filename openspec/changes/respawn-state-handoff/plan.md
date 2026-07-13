@@ -85,7 +85,7 @@ review.md equals the merge-base before the first implementation commit.
   (NEVER the user's live workspace session — standing rule).
 - **Action:** add scenarios (instant targets on cross-tab respawn;
   stale-toggle tolerance; prune-guard disk-shrink window;
-  aggregate-permission-denied no-panic + visible empty UI) to
+  aggregate-permission-denied no-panic + terminal/plugin survival) to
   `scripts/toggle-pipe-regression.sh`, plus deterministic core
   instrumentation for full first-render projection, partial-manifest,
   deferred-prune, and stale-id-collision host states; README

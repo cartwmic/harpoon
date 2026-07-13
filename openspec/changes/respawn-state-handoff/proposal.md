@@ -70,8 +70,9 @@ spike-probed (`/tmp/spike-handoff/`, 2026-07-13).
   cross-tab invoke shows the full list instantly.
 - **Failure envelope:** spawn returns `None`/non-plugin id or bootstrap
   encode/send is unavailable after grant — skip hand-off and successor uses
-  disk load; aggregate permission denial cannot spawn and therefore uses the
-  deny-safe show-in-place fallback (SE-1). No failure path calls an
+  disk load; aggregate permission denial cannot spawn/show and therefore
+  remains inert with terminal visible + plugin alive (SE-1). No failure path
+  calls an
   unverified response-decoding host.
 
 ## Open Questions

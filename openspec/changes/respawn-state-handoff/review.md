@@ -75,11 +75,15 @@ immutable from here. -->
   MessageAndLaunchOtherPlugins denied" is not representable through the SDK.
 - **Substitution:** request the complete capability vector atomically. On
   aggregate grant, spawn+targeted hand-off run. On aggregate denial, issue NO
-  gated response-decoding/query/output/unblock call and use deny-safe
-  show-in-place (no panic). Payload encode/send-unavailable AFTER aggregate
-  grant still degrades spawn→no hand-off→successor independent disk load.
-  S11 drives the real interactive denial in a scratch session and asserts
-  pane/session survival + zero new panic lines.
+  gated response-decoding/query/output/unblock call and stay inert/deny-safe
+  (no panic). Runtime follow-up disproved a visible show fallback: aggregate
+  denial also denies `ChangeApplicationState`; prompt teardown suppresses the
+  plugin and a post-denial `show_self` is ignored. Therefore terminal-visible
+  + plugin/session-alive is the strongest host-permitted status quo, and
+  harpoon does not attempt the ungranted show. Payload encode/send-unavailable
+  AFTER aggregate grant still degrades spawn→no hand-off→successor disk load.
+  S11 drives real interactive denial and asserts pane/session survival + zero
+  new panic lines.
 - **Why required:** preserves the frozen intent's safety outcome (never panic,
   never assume unverified host capability) using the only host-observable
   permission state; exact hand-off-only denial branch is host-unrepresentable.
@@ -164,7 +168,11 @@ non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -
   v1 known baseline; complete core-owned save decision; deferred prune queue
   released after readiness; denial renders empty UI; plugin-only bootstrap;
   cached-grant bootstrap starts disk reconcile. Core 264/264, wasm clean,
-  expanded scratch regression 25/25.
+  expanded scratch regression 25/25. Follow-up S11 probe attempted to assert
+  visible empty UI after denial and failed reproducibly: zellij returned focus
+  to terminal, retained the suppressed plugin in layout, ignored deny-era
+  `show_self`, and added no panic. SE-1/spec corrected to this host-permitted
+  inert fallback; no unverified capability is invoked.
 
 ## Fidelity Round Ledger
 
