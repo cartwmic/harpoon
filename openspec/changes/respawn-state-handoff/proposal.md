@@ -80,11 +80,11 @@ spike-probed (`/tmp/spike-handoff/`, 2026-07-13).
   envelope (`{version:2, bookmarks:[...]}`) + session name in pipe args. B:
   new bespoke payload struct. **Resolved: A** — one serializer, already
   round-trip-tested, version field future-proofs the pipe.
-- **Q2 — F3 mechanism?** A: persist/carry stable pane ids in the hand-off so
-  restart-survival stops depending on titles; title fallback demoted to
-  last resort. B: fuzzy title matching. **Resolved: A** — B adds
-  wrong-pane-match risk, violating restore best-effort semantics; exact
-  mechanism detailed at design/spec level within the frozen constraint.
+- **Q2 — F3 mechanism?** A: carry stable pane ids through same-session
+  hand-off and continuously refresh exact fallback identity for restart. B:
+  fuzzy title matching. **Resolved: A, narrowed by SE-3** — persisted ids are
+  generation-unverified and cleared on disk parse; hand-off ids remain
+  trusted. B adds wrong-pane-match risk; exact fallback stays best-effort.
 - **Q3 — duplicate-toggle key?** A: deterministic pipe identity — hand-off
   payload carries the sender-handled CLI pipe id; successor ignores exactly
   one toggle from that source. B: time-based debounce or shown/readiness

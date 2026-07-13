@@ -50,12 +50,13 @@ review.md equals the merge-base before the first implementation commit.
 
 - **Covers:** T2.3, T2.4
 - **Action:** two 5-step cycles. Guard tests cite
-  `reorder.destructive-save-guard` (suppress shrink + preserve in-memory
-  bookmarks before readiness; full manifest = coverage of every known tab;
-  allow additive/reorder mutations, queue unknown-baseline disk flush;
-  resume prune after both observed). Restore tests cite
-  `reorder.restore-identity-tracks-live-panes` (id-carry through hand-off
-  payload; title-drift refresh emits a save; freeze/placeholder/best-effort
+  `reorder.destructive-save-guard` (core owns complete save policy; suppress
+  shrink + preserve in-memory bookmarks before readiness; full manifest =
+  every known tab; queue unknown-baseline flush; deferred disappeared-pane
+  prune resumes once ready). Restore tests cite
+  `reorder.restore-identity-tracks-live-panes` (same-session id-carry through
+  hand-off; clear generation-untrusted disk ids before fallback/merge/shrink;
+  title-drift refresh emits a save; freeze/placeholder/best-effort
   scenarios from the existing reorder suite stay green — run them
   explicitly).
 - **Verification:** full `cargo test -p harpoon-core` green (existing
@@ -84,9 +85,10 @@ review.md equals the merge-base before the first implementation commit.
   (NEVER the user's live workspace session — standing rule).
 - **Action:** add scenarios (instant targets on cross-tab respawn;
   stale-toggle tolerance; prune-guard disk-shrink window;
-  aggregate-permission-denied no-panic) to
+  aggregate-permission-denied no-panic + visible empty UI) to
   `scripts/toggle-pipe-regression.sh`, plus deterministic core
-  instrumentation for first-render and partial-manifest host states; README
+  instrumentation for full first-render projection, partial-manifest,
+  deferred-prune, and stale-id-collision host states; README
   permission + regrant + hand-off notes.
 - **Verification:** full regression script pass (existing 11 + new
   scenarios); record counts in review.md Execution Notes.

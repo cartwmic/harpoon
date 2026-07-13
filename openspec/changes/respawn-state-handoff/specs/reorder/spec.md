@@ -20,7 +20,9 @@ the mutation SHALL remain in memory and its disk flush SHALL be queued until
 the disk load resolves and reconciles — fail-closed deferral avoids replacing
 an unknown fuller disk file with a partial candidate. Once both readiness
 conditions have been observed, normal reconciliation pruning and its saves
-apply unchanged. Guard/readiness decisions SHALL be pure logic in
+apply unchanged, including deferred removal of a live pane that disappeared
+while pruning was guarded (it SHALL NOT become a permanent unresolved ghost).
+Guard/readiness/save-policy/deferred-prune decisions SHALL be pure logic in
 `harpoon-core` with native tests (Constitution I).
 
 #### Scenario: early partial manifest cannot shrink the disk file
@@ -59,15 +61,17 @@ apply unchanged. Guard/readiness decisions SHALL be pure logic in
 ### Requirement: Restore Identity Tracks Live Panes
 
 THE plugin SHALL keep each resolved bookmark's persisted identity current
-with the live pane it is bound to: bookmark resolution SHALL match by
-stable pane id first, falling back to `(tab_name, pane_title)` only when no
-persisted id matches a visible pane; and WHEN a resolved pane's observed
-`tab_name` or `pane_title` changes, the bookmark's persisted identity
-fields SHALL be refreshed (and persisted via the normal save path) so the
-on-disk fallback identity is the most recently observed one — reducing
-restore dependence on stale volatile titles after pane ids reset (session
-restart). The respawn hand-off payload SHALL carry resolved pane ids so a
-respawned successor resolves bookmarks by id without any title matching.
+with the live pane it is bound to. Same-session state SHALL match by stable
+pane id first, falling back to `(tab_name, pane_title)` only when no trusted
+id matches a visible pane; and WHEN a resolved pane's observed `tab_name` or
+`pane_title` changes, the bookmark's persisted identity fields SHALL be
+refreshed (and persisted via the normal save path) so the on-disk fallback
+identity is the most recently observed one. Pane ids parsed from disk SHALL
+be cleared before restore/merge/shrink comparison because disk outlives a
+zellij session generation and ids may be reassigned to unrelated panes. The
+respawn hand-off payload SHALL retain resolved pane ids because predecessor
+and successor share one generation, so the successor resolves by id without
+title matching.
 
 This requirement SHALL NOT regress the existing restore semantics:
 restore-freeze on user mutation, placeholder slots for unresolved
@@ -81,6 +85,14 @@ panes all apply unchanged.
   same zellij session
 - **THEN** the successor SHALL resolve the bookmark to pane id 7 by id
   match alone (title mismatch is irrelevant)
+
+#### Scenario: cold disk restore rejects a reused pane id
+- **GIVEN** disk bookmark `(id=7, tab=work, title=nvim)` survived a session
+  restart and unrelated live pane `(id=7, tab=shell, title=bash)` now exists
+- **WHEN** the cold successor parses and restores the disk file
+- **THEN** it SHALL clear the generation-unverified persisted id before
+  resolution and SHALL NOT bind the bookmark to the unrelated pane
+- **AND** fallback identity SHALL remain available to find the intended pane
 
 #### Scenario: title drift is re-persisted while the pane is resolved
 - **GIVEN** a resolved bookmark whose live pane's title changes from
