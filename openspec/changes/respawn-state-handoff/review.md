@@ -39,14 +39,12 @@ doneness_mode: required
 
 ## Diff Base + Worktree locator
 
-**Diff Base SHA:** 7409760b3d57278a66b45dddf66c49ce01269515
+**Diff Base SHA:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4
 **Worktree Path:** /Volumes/Workshop/git/harpoon--opsx-respawn-state-handoff
 **Integration Branch:** main
 
-<!-- Diff Base = main HEAD at proposal authoring (intent freeze commit).
-Re-confirm merge-base at worktree creation; if main advanced, update BEFORE
-first implementation commit — immutable afterwards. Worktree is created at
-apply start (worktree-always model). -->
+<!-- Diff Base confirmed at worktree creation = main HEAD (propose commit);
+immutable from here. -->
 
 ## Manual Adjustments
 
