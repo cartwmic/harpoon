@@ -77,6 +77,14 @@ non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -
   for the destructive-save guard (sender's disk verified current at send
   time); disk reconcile after early user mutation = MergeMissing (disk
   entries absent from memory append with index=None), never clobber.
+- 2026-07-13 — Apply validation at worktree `d731bf6`: core native tests
+  259/259 green; wasm32-wasip1 release build clean; strict OpenSpec valid;
+  shell syntax clean; expanded tmux-hosted scratch regression 19/19 green
+  (S8 immediate target hand-off, S9 same-uuid duplicate tolerance + CLI
+  release, S10 persisted-list non-shrink across respawns). Permission-denied
+  end-to-end remains intentionally non-scripted: unseeded permission opens
+  an interactive prompt the harness cannot answer; grant gating + pure core
+  decisions cover the degrade path.
 
 ## Fidelity Round Ledger
 
