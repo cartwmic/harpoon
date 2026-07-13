@@ -173,6 +173,11 @@ non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -
   to terminal, retained the suppressed plugin in layout, ignored deny-era
   `show_self`, and added no panic. SE-1/spec corrected to this host-permitted
   inert fallback; no unverified capability is invoked.
+- 2026-07-13 — Round-3 candidate worktree `8fc4911` final validation: core
+  264/264; wasm32-wasip1 release clean; strict OpenSpec valid; shell syntax
+  clean; scratch regression 25/25. S0 now executes four exact deterministic
+  race/collision tests (full target projection, full-manifest coverage,
+  deferred-prune release, stale disk-id rejection); S8–S11 remain green.
 
 ## Fidelity Round Ledger
 
