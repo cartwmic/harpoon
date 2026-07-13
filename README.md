@@ -275,10 +275,13 @@ when invoking from root.)
 The plugin requests `RunCommands`, `ReadApplicationState`,
 `ChangeApplicationState`, `ReadCliPipes` (gates `unblock_cli_pipe_input` /
 `cli_pipe_output` — without it every CLI pipe client hangs as a zombie and
-`slot_for_pane` produces no output), and `OpenTerminalsOrPlugins` (gates
-`open_plugin_pane_floating` — the toggle's cross-tab respawn; a denied
-response-decoding host call PANICS the plugin, so a missing grant kills the
-instance on the first cross-tab invoke).
+`slot_for_pane` produces no output), `OpenTerminalsOrPlugins` (gates
+`open_plugin_pane_floating` — the toggle's cross-tab respawn), and
+`MessageAndLaunchOtherPlugins` (gates the destination-id `bootstrap_store`
+message that hands the live bookmark list to a respawned successor). A denied
+response-decoding spawn call PANICS the plugin, so host queries/spawns remain
+grant-gated; a hand-off unavailable because its permission was denied degrades
+to the successor's existing disk-load fallback.
 
 After deploying a wasm whose permission set grew (e.g. the `ReadCliPipes`
 addition), the grant must be renewed at runtime:
@@ -288,7 +291,8 @@ addition), the grant must be renewed at runtime:
    prompt (`y`). A hidden/background instance never shows the prompt, so
    **skipping the visible-pane regrant leaves the new permission inert**.
 3. Verify the grant landed: the zellij cache `permissions.kdl` (path from
-   `zellij setup --check`, `[CACHE DIR]`) lists `ReadCliPipes` under this
+   `zellij setup --check`, `[CACHE DIR]`) lists `ReadCliPipes`,
+   `OpenTerminalsOrPlugins`, and `MessageAndLaunchOtherPlugins` under this
    plugin's path.
 4. Restart any long-lived zellij server that predates the grant (e.g. a
    `workspace` session) to clear accumulated wedged pipe clients:
@@ -310,10 +314,11 @@ config + deploy change (operational — outside this repo's test gate):
    instance identity (and any ntfy `--plugin-configuration`) still matches.
 3. Reload the config (zellij picks up config.kdl changes live) or restart
    the server session.
-4. Answer the `OpenTerminalsOrPlugins` permission prompt in a VISIBLE
-   plugin pane (new grant — same regrant discipline as `ReadCliPipes`
-   above; an unanswered prompt leaves toggles inert and a denied grant
-   panics the instance on cross-tab invokes).
+4. Answer the `OpenTerminalsOrPlugins` AND
+   `MessageAndLaunchOtherPlugins` permission prompt in a VISIBLE plugin pane
+   (new grants — same regrant discipline as `ReadCliPipes` above; an
+   unanswered prompt leaves toggles inert, while an unavailable bootstrap
+   permission degrades cross-tab state transfer to disk load).
 5. Verify a round-trip: `Ctrl y` shows the menu floating on the current
    tab → `Esc` hides → switch tab → `Ctrl y` again shows it on the NEW tab
    (menu and view together — the wrong-tab jump is gone; cross-tab invokes

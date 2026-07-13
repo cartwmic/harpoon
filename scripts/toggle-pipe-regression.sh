@@ -234,6 +234,70 @@ L2="$(za2 dump-layout 2>/dev/null || true)"
 f2="$(focused_tab_of "$L2")"; h2="$(harpoon_tab_of "$L2")"
 assert "S7 toggle after cold jump_pane lands menu+view on J1 (focus=$f2 harpoon=${h2:-hidden})" "$([ "$f2" = J1 ] && [ "$h2" = J1 ]; echo $?)"
 
+# ── S8: cross-tab respawn presents persisted targets (state hand-off) ────
+# AC pane-pipe-api.respawn-state-hand-off: bookmark a pane on T3, then
+# invoke cross-tab from T1 — the respawned successor's menu must list the
+# bookmark (the outgoing instance hands its store over; no
+# invoke-again-to-recover). NOTE on timing granularity: tmux capture
+# resolution (~seconds) cannot distinguish hand-off (0ms) from a fast disk
+# load; the instant-adoption property itself is covered by native core
+# tests — this scenario asserts the end-to-end functional outcome.
+za go-to-tab-name T3; sleep 1
+za rename-pane BMARK1; sleep 1
+press F6
+expect_state "S8-pre menu shown on T3 for bookmarking" T3 T3
+tmux send-keys -t "$HOST" a; sleep 2   # add focused pane (BMARK1) → Effect::Save
+press Escape                            # close → parked on T3
+expect_state "S8-mid hidden after bookmark add" T3 ""
+za go-to-tab-name T1; sleep 1
+press F6
+sleep 2   # respawn = fresh wasm load + bootstrap adoption
+L="$(za dump-layout 2>/dev/null || true)"
+SCREEN="$(scr)"
+f="$(focused_tab_of "$L")"; h="$(harpoon_tab_of "$L")"
+BM_SHOWN=1; echo "$SCREEN" | grep -q "BMARK1" && BM_SHOWN=0
+assert "S8 cross-tab respawn menu lists persisted target BMARK1 (focus=$f harpoon=${h:-hidden})" \
+  "$([ "$f" = T1 ] && [ "$h" = T1 ] && [ "$BM_SHOWN" -eq 0 ]; echo $?)"
+DATA_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/zellij-harpoon/$SES.json"
+BM_DISK=1; grep -q "BMARK1" "$DATA_FILE" 2>/dev/null && BM_DISK=0
+assert "S8-disk persisted file contains BMARK1" "$BM_DISK"
+
+# ── S9: re-delivered CLI toggle does not hide the fresh menu ────────────
+# AC pane-pipe-api.duplicate-toggle-delivery-tolerance: a CLI-sourced
+# cross-tab toggle triggers a respawn AND zellij re-delivers the SAME
+# still-open CLI pipe to the successor (~380ms, probe 2026-07-13). Without
+# the identity guard the re-delivery hides the just-shown menu; with it the
+# menu stays AND the CLI client is still released (no hang → no exit 124).
+press F6   # hide (parked on T1)
+expect_state "S9-pre hidden (parked on T1)" T1 ""
+za go-to-tab-name T3; sleep 1
+CLI_RC=0
+timeout 20 zellij -s "$SES" pipe --name toggle --plugin "file:$WASM" -- "" || CLI_RC=$?
+assert "S9-release CLI toggle client released promptly (rc=$CLI_RC)" "$([ "$CLI_RC" -eq 0 ]; echo $?)"
+sleep 3   # cover the re-delivery window before asserting
+expect_state "S9 menu still shown on T3 after stale re-delivery window" T3 T3
+
+# ── S10: disk file never shrinks across respawn cycles (prune-guard) ─────
+# AC reorder.destructive-save-guard: every cross-tab respawn is a fresh
+# instance whose early saves (pre-baseline, pre-manifest) must never shrink
+# the persisted bookmark set.
+count_bm() { python3 -c "import json,sys;d=json.load(open('$DATA_FILE'));print(len(d['bookmarks']))" 2>/dev/null || echo 0; }
+BM_BEFORE="$(count_bm)"
+press F6   # hide (parked on T3)
+za go-to-tab-name T1; sleep 1
+press F6; sleep 2   # respawn cycle 1 → menu on T1
+press F6            # hide (parked on T1)
+za go-to-tab-name T3; sleep 1
+press F6; sleep 2   # respawn cycle 2 → menu on T3
+BM_AFTER="$(count_bm)"
+assert "S10 persisted bookmarks never shrink across respawn cycles (before=$BM_BEFORE after=$BM_AFTER)" \
+  "$([ "$BM_AFTER" -ge "$BM_BEFORE" ] && [ "$BM_BEFORE" -ge 1 ]; echo $?)"
+
+# (Permission-denied degrade is NOT scriptable end-to-end: an unseeded
+# permission makes zellij raise an interactive prompt the scripted session
+# can never answer — the deny path is grant-gated in the shim and covered
+# by native core tests + the pre-grant deny-safe adoption design.)
+
 say "----"
 say "scenarios: $PASS passed, $FAIL failed"
 [ "$FAIL" -eq 0 ]

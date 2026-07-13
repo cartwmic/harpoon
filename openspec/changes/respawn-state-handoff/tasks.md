@@ -78,7 +78,7 @@
 
 ## 4. Regression evidence + docs
 
-- [ ] 4.1 Extend `scripts/toggle-pipe-regression.sh` (tmux-hosted scratch
+- [x] 4.1 Extend `scripts/toggle-pipe-regression.sh` (tmux-hosted scratch
   sessions ONLY): (a) cross-tab respawn presents persisted targets on first
   render; (b) stale re-delivered toggle does not hide the menu; (c)
   prune-guard — disk file never shrinks during the early-save window; (d)
@@ -86,7 +86,7 @@
   - intent: feature
   - files_allowed:
       - scripts/**
-- [ ] 4.2 README: document the new `MessageAndLaunchOtherPlugins`
+- [x] 4.2 README: document the new `MessageAndLaunchOtherPlugins`
   permission and the runtime regrant step (visible-pane prompt), plus the
   hand-off behavior note.
   - intent: feature
