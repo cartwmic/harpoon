@@ -105,6 +105,35 @@ impl Persistence {
         }
     }
 
+    /// Parse session-file content WITHOUT touching any state — v2 envelope
+    /// first, v1 bare-array fallback (same detection as `on_load_command`).
+    /// Used by the `MergeMissing` disk reconciliation
+    /// (pane-pipe-api.respawn-state-hand-off).
+    pub fn parse_content(content: &str) -> Option<Vec<PaneBookmark>> {
+        if let Ok(v2) = serde_json::from_str::<PersistedV2>(content) {
+            return Some(v2.bookmarks);
+        }
+        serde_json::from_str::<Vec<PaneBookmark>>(content).ok()
+    }
+
+    /// Seed the last-persisted baseline without a disk write. Used at
+    /// bootstrap adoption: the sender's disk was current at send time, so
+    /// the adopted payload IS the persisted state — giving the destructive
+    /// save guard a baseline to compare against
+    /// (reorder.destructive-save-guard).
+    pub fn set_baseline(&mut self, bookmarks: Vec<PaneBookmark>) {
+        self.last_saved_state = Some(PersistedV2 {
+            version: 2,
+            bookmarks,
+        });
+    }
+
+    /// The last known persisted bookmark list (`None` until a disk load
+    /// resolves, a save lands, or an adopted baseline is seeded).
+    pub fn last_persisted(&self) -> Option<&[PaneBookmark]> {
+        self.last_saved_state.as_ref().map(|s| s.bookmarks.as_slice())
+    }
+
     /// True iff the current `store.bookmarks` differs from the last
     /// successfully-saved envelope.
     pub fn has_changed(&self, store: &BookmarkStore) -> bool {

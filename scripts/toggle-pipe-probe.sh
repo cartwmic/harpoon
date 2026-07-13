@@ -138,7 +138,7 @@ fi
 # required permission makes zellij show an interactive prompt the scripted
 # session can never answer.
 awk -v wasm="$WASM" 'BEGIN{skip=0} $0 == "\"" wasm "\" {" {skip=1; next} skip && /^\}/ {skip=0; next} !skip {print}' "$PERM_FILE" > "$PERM_FILE.tmp" && mv "$PERM_FILE.tmp" "$PERM_FILE"
-printf '"%s" {\n    ChangeApplicationState\n    RunCommands\n    ReadApplicationState\n    ReadCliPipes\n    OpenTerminalsOrPlugins\n}\n' "$WASM" >> "$PERM_FILE"
+printf '"%s" {\n    ChangeApplicationState\n    RunCommands\n    ReadApplicationState\n    ReadCliPipes\n    OpenTerminalsOrPlugins\n    MessageAndLaunchOtherPlugins\n}\n' "$WASM" >> "$PERM_FILE"
 
 # ── probe config: F6 → MessagePlugin toggle pipe (merges with defaults) ────
 CFG="$PROBE_DIR/probe-config.kdl"

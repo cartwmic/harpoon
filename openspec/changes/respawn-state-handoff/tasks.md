@@ -47,7 +47,7 @@
 
 ## 3. Shim wiring (harpoon-plugin)
 
-- [ ] 3.1 Respawn hand-off send: capture `open_plugin_pane_floating`'s
+- [x] 3.1 Respawn hand-off send: capture `open_plugin_pane_floating`'s
   returned pane id, send `bootstrap_store` via `pipe_message_to_plugin`
   with `destination_plugin_id` (payload from core serializer), then
   `close_self()`; grant-gate the send; `None`/non-plugin id or
@@ -56,21 +56,21 @@
   - intent: feature
   - files_allowed:
       - harpoon-plugin/**
-- [ ] 3.2 `bootstrap_store` pipe handler: deny-safe, pure-state adoption
+- [x] 3.2 `bootstrap_store` pipe handler: deny-safe, pure-state adoption
   (no response-decoding host calls — payload can arrive pre-grant), feeding
   core's adoption logic; wire duplicate-toggle readiness into the toggle
   pipe path.
   - intent: feature
   - files_allowed:
       - harpoon-plugin/**
-- [ ] 3.3 Permission completeness: add `MessageAndLaunchOtherPlugins` to
+- [x] 3.3 Permission completeness: add `MessageAndLaunchOtherPlugins` to
   `request_permission`; update both scripts' permission seeds. Tests/greps
   cite `pane-pipe-api.host-call-permission-completeness`.
   - intent: feature
   - files_allowed:
       - harpoon-plugin/**
       - scripts/**
-- [ ] 3.4 Wire save guard + title-drift refresh into the
+- [x] 3.4 Wire save guard + title-drift refresh into the
   `update_panes`/persistence path (shim executes core decisions only).
   - intent: fix
   - files_allowed:
