@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 use serde::{Deserialize, Serialize};
 use zellij_tile::prelude::*;
 
-use harpoon_core::{BookmarkStore, PaneBookmark};
+use harpoon_core::{clear_untrusted_pane_ids, BookmarkStore, PaneBookmark};
 
 /// v2 on-disk envelope.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -81,7 +81,11 @@ impl Persistence {
         content: &str,
     ) -> Result<(), PersistenceError> {
         // Try v2 envelope first.
-        if let Ok(v2) = serde_json::from_str::<PersistedV2>(content) {
+        if let Ok(mut v2) = serde_json::from_str::<PersistedV2>(content) {
+            // Pane ids are session-generation-local. A disk file can outlive
+            // the generation and reuse an id for an unrelated pane; cold
+            // restore MUST use the refreshed fallback identity instead.
+            clear_untrusted_pane_ids(&mut v2.bookmarks);
             store.bookmarks = v2.bookmarks.clone();
             self.last_saved_state = Some(v2);
             // pane_id_to_bookmark_idx stays empty until restore_round resolves.
@@ -96,9 +100,15 @@ impl Persistence {
                         b.index = Some(i as u16);
                     }
                 }
+                clear_untrusted_pane_ids(&mut bookmarks);
                 store.bookmarks = bookmarks.clone();
-                // Don't set last_saved_state — next save writes v2 form.
-                self.last_saved_state = None;
+                // A successfully parsed v1 file is a KNOWN baseline. Keep
+                // its rows for immediate additive classification; the next
+                // changed save still writes the canonical v2 envelope.
+                self.last_saved_state = Some(PersistedV2 {
+                    version: 2,
+                    bookmarks,
+                });
                 Ok(())
             }
             Err(e) => Err(PersistenceError::LoadFromDiskFailed(e.to_string())),
@@ -110,10 +120,13 @@ impl Persistence {
     /// Used by the `MergeMissing` disk reconciliation
     /// (pane-pipe-api.respawn-state-hand-off).
     pub fn parse_content(content: &str) -> Option<Vec<PaneBookmark>> {
-        if let Ok(v2) = serde_json::from_str::<PersistedV2>(content) {
-            return Some(v2.bookmarks);
-        }
-        serde_json::from_str::<Vec<PaneBookmark>>(content).ok()
+        let mut bookmarks = if let Ok(v2) = serde_json::from_str::<PersistedV2>(content) {
+            v2.bookmarks
+        } else {
+            serde_json::from_str::<Vec<PaneBookmark>>(content).ok()?
+        };
+        clear_untrusted_pane_ids(&mut bookmarks);
+        Some(bookmarks)
     }
 
     /// Seed the last-persisted baseline without a disk write. Used at
@@ -131,7 +144,9 @@ impl Persistence {
     /// The last known persisted bookmark list (`None` until a disk load
     /// resolves, a save lands, or an adopted baseline is seeded).
     pub fn last_persisted(&self) -> Option<&[PaneBookmark]> {
-        self.last_saved_state.as_ref().map(|s| s.bookmarks.as_slice())
+        self.last_saved_state
+            .as_ref()
+            .map(|s| s.bookmarks.as_slice())
     }
 
     /// True iff the current `store.bookmarks` differs from the last
@@ -149,11 +164,7 @@ impl Persistence {
 
     /// Write the current `store.bookmarks` to disk if it differs from the
     /// last saved snapshot.
-    pub fn save_if_changed(
-        &mut self,
-        store: &BookmarkStore,
-        session_name: &Option<String>,
-    ) {
+    pub fn save_if_changed(&mut self, store: &BookmarkStore, session_name: &Option<String>) {
         if !self.has_changed(store) {
             return;
         }

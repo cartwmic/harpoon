@@ -22,9 +22,11 @@
 //! `pane-pipe-api.duplicate-toggle-delivery-tolerance`,
 //! `reorder.destructive-save-guard`.
 
+use std::collections::{BTreeSet, HashSet};
+
 use serde::{Deserialize, Serialize};
 
-use crate::bookmark::PaneBookmark;
+use crate::bookmark::{BookmarkStore, PaneBookmark};
 
 /// Pipe name for the hand-off message (never a broadcast pipe).
 pub const BOOTSTRAP_PIPE_NAME: &str = "bootstrap_store";
@@ -82,8 +84,12 @@ pub struct StoreBootState {
     /// The user has mutated the in-memory store this instance
     /// (add/delete/reorder/freeze) — newer than any bootstrap or disk data.
     pub mutated: bool,
-    /// At least one non-empty pane manifest has been observed.
+    /// A full pane manifest (coverage of every known tab) has been observed.
     pub manifest_seen: bool,
+    /// Aggregate permission request reached a terminal denial. The plugin
+    /// cannot disk-load, but must render the status-quo empty menu rather
+    /// than remain a permanently blank pane.
+    pub permission_denied: bool,
 }
 
 /// What to do with an arriving `bootstrap_store` payload.
@@ -136,12 +142,21 @@ pub fn disk_load_decision(state: &StoreBootState) -> DiskLoadDecision {
     }
 }
 
-/// Stable identity key for shrink/merge comparisons: the pane id when the
-/// bookmark has resolved, else the `(tab_name, pane_title)` fallback pair.
-fn identity_key(b: &PaneBookmark) -> (Option<u32>, &str, &str) {
-    match b.id {
-        Some(id) => (Some(id), "", ""),
-        None => (None, b.tab_name.as_str(), b.pane_title.as_str()),
+/// Bookmark identity for reconciliation/comparison. Same-session live ids
+/// survive title drift; the fallback pair bridges persisted rows whose ids
+/// were deliberately cleared as generation-untrusted on disk load.
+fn same_bookmark(a: &PaneBookmark, b: &PaneBookmark) -> bool {
+    matches!((a.id, b.id), (Some(aid), Some(bid)) if aid == bid)
+        || (a.tab_name == b.tab_name && a.pane_title == b.pane_title)
+}
+
+/// Pane ids are stable only within one zellij session generation. Disk files
+/// survive restarts, so their ids are untrusted and MUST be cleared before
+/// restore, merge, or shrink comparison. Targeted bootstrap payloads are not
+/// passed here: predecessor and successor share one generation.
+pub fn clear_untrusted_pane_ids(bookmarks: &mut [PaneBookmark]) {
+    for bookmark in bookmarks {
+        bookmark.id = None;
     }
 }
 
@@ -151,7 +166,7 @@ fn identity_key(b: &PaneBookmark) -> (Option<u32>, &str, &str) {
 /// user's current layout).
 pub fn merge_missing(memory: &mut Vec<PaneBookmark>, disk: &[PaneBookmark]) {
     for d in disk {
-        if !memory.iter().any(|m| identity_key(m) == identity_key(d)) {
+        if !memory.iter().any(|m| same_bookmark(m, d)) {
             let mut b = d.clone();
             b.index = None;
             memory.push(b);
@@ -195,7 +210,7 @@ impl DuplicateToggleGuard {
 pub fn is_shrinking_save(last_persisted: &[PaneBookmark], candidate: &[PaneBookmark]) -> bool {
     last_persisted
         .iter()
-        .any(|p| !candidate.iter().any(|c| identity_key(c) == identity_key(p)))
+        .any(|p| !candidate.iter().any(|c| same_bookmark(c, p)))
 }
 
 /// AC `reorder.destructive-save-guard`: shrinking saves are allowed only
@@ -210,6 +225,98 @@ pub fn shrinking_save_allowed(state: &StoreBootState) -> bool {
     state.disk_resolved && state.manifest_seen
 }
 
+/// Complete guarded-save decision. The shim supplies state and data, then
+/// executes this result; it owns no unknown-baseline or shrink policy.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GuardedSaveDecision {
+    Save,
+    Defer,
+}
+
+pub fn guarded_save_decision(
+    state: &StoreBootState,
+    last_persisted: Option<&[PaneBookmark]>,
+    candidate: &[PaneBookmark],
+) -> GuardedSaveDecision {
+    if last_persisted.is_none() && !state.disk_resolved {
+        return GuardedSaveDecision::Defer;
+    }
+    if let Some(last) = last_persisted {
+        if is_shrinking_save(last, candidate) && !shrinking_save_allowed(state) {
+            return GuardedSaveDecision::Defer;
+        }
+    }
+    GuardedSaveDecision::Save
+}
+
+/// Remember live pane ids that disappeared while a frozen store could not
+/// safely prune. Once BOTH readiness conditions hold, return only ids still
+/// absent from the full manifest; one-shot removal resumes normal pruning.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct DeferredPruneGuard {
+    pending_ids: BTreeSet<u32>,
+}
+
+impl DeferredPruneGuard {
+    pub fn remember(&mut self, pane_id: u32) {
+        self.pending_ids.insert(pane_id);
+    }
+
+    pub fn take_prunable(&mut self, state: &StoreBootState, visible_ids: &[u32]) -> Vec<u32> {
+        if !shrinking_save_allowed(state) {
+            return Vec::new();
+        }
+        let visible: HashSet<u32> = visible_ids.iter().copied().collect();
+        let prunable: Vec<u32> = self
+            .pending_ids
+            .iter()
+            .copied()
+            .filter(|id| !visible.contains(id))
+            .collect();
+        for id in &prunable {
+            self.pending_ids.remove(id);
+        }
+        prunable
+    }
+}
+
+/// Remove bookmarks for deferred pane ids and compact their saved slots.
+/// Returns old slot indices for the shim to remove from its pane vector.
+pub fn prune_bookmarks_by_pane_ids(store: &mut BookmarkStore, pane_ids: &[u32]) -> Vec<usize> {
+    let ids: HashSet<u32> = pane_ids.iter().copied().collect();
+    let resolved_before: HashSet<u32> = store.pane_id_to_bookmark_idx.keys().copied().collect();
+    let mut removed_slots: Vec<usize> = store
+        .bookmarks
+        .iter()
+        .filter(|b| b.id.is_some_and(|id| ids.contains(&id)))
+        .filter_map(|b| b.index.map(usize::from))
+        .collect();
+    removed_slots.sort_unstable();
+    removed_slots.dedup();
+
+    store
+        .bookmarks
+        .retain(|b| !b.id.is_some_and(|id| ids.contains(&id)));
+    for bookmark in &mut store.bookmarks {
+        if let Some(index) = bookmark.index {
+            let shift = removed_slots
+                .iter()
+                .filter(|&&removed| removed < usize::from(index))
+                .count();
+            bookmark.index = Some(index.saturating_sub(shift as u16));
+        }
+    }
+    store.pane_id_to_bookmark_idx.clear();
+    for (index, bookmark) in store.bookmarks.iter().enumerate() {
+        if let Some(id) = bookmark.id {
+            if resolved_before.contains(&id) {
+                store.pane_id_to_bookmark_idx.insert(id, index);
+            }
+        }
+    }
+    removed_slots
+}
+
 /// Whether a PaneUpdate snapshot covers every tab position currently known
 /// from TabUpdate. This is the strongest verifiable "full pane manifest"
 /// signal zellij 0.44.3 exposes: PaneUpdate is a full snapshot by API shape,
@@ -222,12 +329,19 @@ pub fn manifest_covers_tabs(manifest_positions: &[usize], tab_positions: &[usize
             .all(|tab| manifest_positions.iter().any(|seen| seen == tab))
 }
 
-/// Suppress user-visible menu rendering until one authoritative store source
-/// has resolved. A successor's first ACTUAL render therefore contains the
-/// adopted payload (cross-tab respawn) or disk-loaded state (cold boot),
-/// never an empty intermediate list.
-pub fn store_ready_to_render(state: &StoreBootState) -> bool {
-    state.adopted || state.disk_resolved
+/// Suppress user-visible rendering until one authoritative source resolved
+/// AND every bookmark can be presented as a live row or persisted-identity
+/// placeholder. Aggregate denial is terminal and intentionally renders the
+/// status-quo empty UI rather than a permanently blank pane.
+pub fn store_ready_to_render(
+    state: &StoreBootState,
+    presented_bookmarks: usize,
+    total_bookmarks: usize,
+) -> bool {
+    if state.permission_denied {
+        return true;
+    }
+    (state.adopted || state.disk_resolved) && presented_bookmarks == total_bookmarks
 }
 
 #[cfg(test)]
@@ -251,7 +365,10 @@ mod tests {
         // reorder.restore-identity-tracks-live-panes (id-carry)
         let payload = BootstrapPayload {
             version: BOOTSTRAP_VERSION,
-            bookmarks: vec![bm(Some(7), "work", "nvim", Some(0)), bm(None, "logs", "tail", None)],
+            bookmarks: vec![
+                bm(Some(7), "work", "nvim", Some(0)),
+                bm(None, "logs", "tail", None),
+            ],
             session_name: Some("workspace".into()),
             handled_cli_pipe: Some("eb176526-e2ba-4bd2-a60f-47e474a2e5a6".into()),
         };
@@ -282,25 +399,38 @@ mod tests {
     #[test]
     fn bootstrap_adopted_even_after_disk_resolved_when_unmutated() {
         // Payload is the sender's LIVE state — newer than disk.
-        let state = StoreBootState { disk_resolved: true, ..Default::default() };
+        let state = StoreBootState {
+            disk_resolved: true,
+            ..Default::default()
+        };
         assert_eq!(bootstrap_arrival_decision(&state), AdoptDecision::Adopt);
     }
 
     #[test]
     fn bootstrap_ignored_after_user_mutation() {
-        let state = StoreBootState { mutated: true, ..Default::default() };
+        let state = StoreBootState {
+            mutated: true,
+            ..Default::default()
+        };
         assert_eq!(bootstrap_arrival_decision(&state), AdoptDecision::Ignore);
     }
 
     #[test]
     fn late_disk_load_never_clobbers_adopted_store() {
         // pane-pipe-api.respawn-state-hand-off (late disk load scenario)
-        let state = StoreBootState { adopted: true, ..Default::default() };
+        let state = StoreBootState {
+            adopted: true,
+            ..Default::default()
+        };
         assert_eq!(
             disk_load_decision(&state),
             DiskLoadDecision::ReconcileBaseline
         );
-        let state = StoreBootState { adopted: true, mutated: true, ..Default::default() };
+        let state = StoreBootState {
+            adopted: true,
+            mutated: true,
+            ..Default::default()
+        };
         assert_eq!(
             disk_load_decision(&state),
             DiskLoadDecision::ReconcileBaseline
@@ -315,12 +445,17 @@ mod tests {
 
     #[test]
     fn disk_load_after_early_mutation_merges_without_clobbering() {
-        let state = StoreBootState { mutated: true, ..Default::default() };
+        let state = StoreBootState {
+            mutated: true,
+            ..Default::default()
+        };
         assert_eq!(disk_load_decision(&state), DiskLoadDecision::MergeMissing);
 
         let mut memory = vec![bm(Some(9), "new", "added-by-user", Some(0))];
         let disk = vec![
-            bm(Some(9), "new", "added-by-user", Some(0)), // same identity
+            // Persisted id is absent/generation-untrusted, but fallback
+            // identity still recognizes the user's same live bookmark.
+            bm(None, "new", "added-by-user", Some(0)),
             bm(None, "old", "from-disk", Some(1)),
         ];
         merge_missing(&mut memory, &disk);
@@ -328,6 +463,20 @@ mod tests {
         assert_eq!(memory[0].pane_title, "added-by-user"); // untouched
         assert_eq!(memory[1].pane_title, "from-disk");
         assert_eq!(memory[1].index, None); // append-on-resolve, not placed
+    }
+
+    #[test]
+    fn disk_ids_are_cleared_before_cross_restart_identity_use() {
+        let mut disk = vec![
+            bm(Some(7), "work", "nvim", Some(0)),
+            bm(Some(8), "logs", "tail", Some(1)),
+        ];
+        clear_untrusted_pane_ids(&mut disk);
+        assert!(disk.iter().all(|b| b.id.is_none()));
+
+        // Reused id=7 on a different pane cannot mask deletion of nvim.
+        let candidate = vec![bm(Some(7), "shell", "bash", Some(0))];
+        assert!(is_shrinking_save(&disk, &candidate));
     }
 
     // ── duplicate toggle: pane-pipe-api.duplicate-toggle-delivery-tolerance ─
@@ -347,7 +496,7 @@ mod tests {
         guard.arm(Some("uuid-1".into()));
         assert!(!guard.is_stale_toggle(Some("uuid-2"))); // different CLI client
         assert!(!guard.is_stale_toggle(None)); // keybind source (no uuid)
-        // Non-matches do not disarm the guard.
+                                               // Non-matches do not disarm the guard.
         assert!(guard.is_stale_toggle(Some("uuid-1")));
     }
 
@@ -362,19 +511,56 @@ mod tests {
 
     #[test]
     fn shrinking_save_detected_by_identity() {
-        let last = vec![bm(Some(1), "a", "t1", Some(0)), bm(Some(2), "b", "t2", Some(1))];
+        let last = vec![
+            bm(Some(1), "a", "t1", Some(0)),
+            bm(Some(2), "b", "t2", Some(1)),
+        ];
         // Dropping id=2 shrinks.
         assert!(is_shrinking_save(&last, &[bm(Some(1), "a", "t1", Some(0))]));
         // Title refresh on the SAME id is not a shrink.
-        let refreshed = vec![bm(Some(1), "a", "new-title", Some(0)), bm(Some(2), "b", "t2", Some(1))];
+        let refreshed = vec![
+            bm(Some(1), "a", "new-title", Some(0)),
+            bm(Some(2), "b", "t2", Some(1)),
+        ];
         assert!(!is_shrinking_save(&last, &refreshed));
         // Additive is not a shrink.
         let mut grown = last.clone();
         grown.push(bm(Some(3), "c", "t3", Some(2)));
         assert!(!is_shrinking_save(&last, &grown));
         // Reorder (index changes only) is not a shrink.
-        let reordered = vec![bm(Some(2), "b", "t2", Some(0)), bm(Some(1), "a", "t1", Some(1))];
+        let reordered = vec![
+            bm(Some(2), "b", "t2", Some(0)),
+            bm(Some(1), "a", "t1", Some(1)),
+        ];
         assert!(!is_shrinking_save(&last, &reordered));
+        // Mixed persisted no-id/current-id rows compare by fallback.
+        assert!(!is_shrinking_save(
+            &[bm(None, "a", "t1", Some(0))],
+            &[bm(Some(99), "a", "t1", Some(0))],
+        ));
+    }
+
+    #[test]
+    fn guarded_save_policy_is_wholly_core_owned() {
+        let candidate = vec![bm(Some(1), "a", "t1", Some(0))];
+        assert_eq!(
+            guarded_save_decision(&StoreBootState::default(), None, &candidate),
+            GuardedSaveDecision::Defer
+        );
+        let known_empty: Vec<PaneBookmark> = Vec::new();
+        assert_eq!(
+            guarded_save_decision(&StoreBootState::default(), Some(&known_empty), &candidate,),
+            GuardedSaveDecision::Save
+        );
+        let ready = StoreBootState {
+            disk_resolved: true,
+            manifest_seen: true,
+            ..Default::default()
+        };
+        assert_eq!(
+            guarded_save_decision(&ready, None, &candidate),
+            GuardedSaveDecision::Save
+        );
     }
 
     #[test]
@@ -415,16 +601,58 @@ mod tests {
     }
 
     #[test]
-    fn first_render_waits_for_bootstrap_or_disk() {
-        // pane-pipe-api.respawn-state-hand-off (no empty first render)
-        assert!(!store_ready_to_render(&StoreBootState::default()));
-        assert!(store_ready_to_render(&StoreBootState {
+    fn first_render_waits_for_full_store_projection_or_terminal_denial() {
+        // pane-pipe-api.respawn-state-hand-off (no empty/partial first render)
+        assert!(!store_ready_to_render(&StoreBootState::default(), 0, 2));
+        let adopted = StoreBootState {
             adopted: true,
             ..Default::default()
-        }));
-        assert!(store_ready_to_render(&StoreBootState {
+        };
+        assert!(!store_ready_to_render(&adopted, 0, 2));
+        assert!(!store_ready_to_render(&adopted, 1, 2));
+        assert!(store_ready_to_render(&adopted, 2, 2));
+        let disk = StoreBootState {
             disk_resolved: true,
             ..Default::default()
-        }));
+        };
+        assert!(store_ready_to_render(&disk, 0, 0));
+        let denied = StoreBootState {
+            permission_denied: true,
+            ..Default::default()
+        };
+        assert!(store_ready_to_render(&denied, 0, 0));
+    }
+
+    #[test]
+    fn deferred_prune_resumes_once_ready_and_compacts_slots() {
+        let mut guard = DeferredPruneGuard::default();
+        guard.remember(2);
+        let not_ready = StoreBootState {
+            disk_resolved: true,
+            ..Default::default()
+        };
+        assert!(guard.take_prunable(&not_ready, &[1]).is_empty());
+        let ready = StoreBootState {
+            disk_resolved: true,
+            manifest_seen: true,
+            ..Default::default()
+        };
+        let ids = guard.take_prunable(&ready, &[1]);
+        assert_eq!(ids, vec![2]);
+
+        let mut store = BookmarkStore {
+            bookmarks: vec![
+                bm(Some(1), "a", "one", Some(0)),
+                bm(Some(2), "b", "gone", Some(1)),
+                bm(Some(3), "c", "three", Some(2)),
+            ],
+            ..Default::default()
+        };
+        store.pane_id_to_bookmark_idx.insert(1, 0);
+        store.pane_id_to_bookmark_idx.insert(3, 2);
+        assert_eq!(prune_bookmarks_by_pane_ids(&mut store, &ids), vec![1]);
+        assert_eq!(store.bookmarks.len(), 2);
+        assert_eq!(store.bookmarks[1].index, Some(1));
+        assert_eq!(store.pane_id_to_bookmark_idx.get(&3), Some(&1));
     }
 }

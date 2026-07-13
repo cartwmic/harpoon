@@ -33,10 +33,11 @@ pub mod slot;
 // Re-export the most-used types at the crate root for ergonomics.
 pub use bookmark::{BookmarkStore, PaneBookmark};
 pub use bootstrap::{
-    bootstrap_arrival_decision, decode_bootstrap, disk_load_decision, encode_bootstrap,
-    is_shrinking_save, manifest_covers_tabs, merge_missing, shrinking_save_allowed,
-    store_ready_to_render, AdoptDecision, BootstrapPayload, DiskLoadDecision,
-    DuplicateToggleGuard, StoreBootState, BOOTSTRAP_PIPE_NAME, BOOTSTRAP_VERSION,
+    bootstrap_arrival_decision, clear_untrusted_pane_ids, decode_bootstrap, disk_load_decision,
+    encode_bootstrap, guarded_save_decision, is_shrinking_save, manifest_covers_tabs,
+    merge_missing, prune_bookmarks_by_pane_ids, shrinking_save_allowed, store_ready_to_render,
+    AdoptDecision, BootstrapPayload, DeferredPruneGuard, DiskLoadDecision, DuplicateToggleGuard,
+    GuardedSaveDecision, StoreBootState, BOOTSTRAP_PIPE_NAME, BOOTSTRAP_VERSION,
 };
 pub use command::handle_command_key;
 pub use config::{Config, MatcherKind};

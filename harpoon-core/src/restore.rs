@@ -80,7 +80,10 @@ pub fn resolve_restore_round(
 
     // Defer mutations that need bookmark index rewrites until after the
     // bookmark borrow is released.
-    let mut to_append: Vec<(usize /* bookmark idx */, Pane /* the resolved pane */)> = Vec::new();
+    let mut to_append: Vec<(
+        usize, /* bookmark idx */
+        Pane,  /* the resolved pane */
+    )> = Vec::new();
     let mut to_place: Vec<(usize /* bookmark idx */, usize /* slot */, Pane)> = Vec::new();
 
     for (bk_idx, b) in store.bookmarks.iter().enumerate() {
@@ -95,9 +98,8 @@ pub fn resolve_restore_round(
         // so prefer it. Fall back to (tab_name, pane_title) only when the
         // bookmark has no id yet (older on-disk file) or its id is no longer
         // visible (cross-session restore: ids were reassigned).
-        let matched = b
-            .id
-            .and_then(|bid| {
+        let matched =
+            b.id.and_then(|bid| {
                 visible
                     .iter()
                     .find(|v| v.id == bid && !consumed_visible_ids.contains(&v.id))
@@ -166,11 +168,12 @@ pub fn resolve_restore_round(
 /// `save_if_changed` path). Pure state — no host calls.
 pub fn refresh_resolved_identities(store: &mut BookmarkStore, visible: &[VisiblePane]) -> bool {
     let mut changed = false;
-    for (&pane_id, &bk_idx) in &store.pane_id_to_bookmark_idx.clone() {
+    let (bookmarks, pane_map) = (&mut store.bookmarks, &store.pane_id_to_bookmark_idx);
+    for (&pane_id, &bk_idx) in pane_map {
         let Some(v) = visible.iter().find(|v| v.id == pane_id) else {
             continue; // not visible this round; nothing to refresh
         };
-        let Some(b) = store.bookmarks.get_mut(bk_idx) else {
+        let Some(b) = bookmarks.get_mut(bk_idx) else {
             continue;
         };
         if b.tab_name != v.tab_name || b.pane_title != v.pane_title {
@@ -338,10 +341,7 @@ mod tests {
     #[test]
     fn duplicate_bookmarks_distribute_to_duplicate_visible_panes() {
         let mut store = BookmarkStore {
-            bookmarks: vec![
-                bm("work", "nvim", Some(0)),
-                bm("work", "nvim", Some(1)),
-            ],
+            bookmarks: vec![bm("work", "nvim", Some(0)), bm("work", "nvim", Some(1))],
             ..Default::default()
         };
         let mut panes: Vec<Option<Pane>> = Vec::new();

@@ -92,10 +92,7 @@ pub enum RowEntry<'a> {
 ///
 /// Output length is `max(panes.len(), max_unresolved_saved_index + 1)`, so
 /// that placeholder slots beyond the current resolved set are still rendered.
-pub fn build_row_entries<'a>(
-    state: &'a DispatchState,
-    store: &BookmarkStore,
-) -> Vec<RowEntry<'a>> {
+pub fn build_row_entries<'a>(state: &'a DispatchState, store: &BookmarkStore) -> Vec<RowEntry<'a>> {
     // Collect placeholder data keyed on slot index.
     let mut placeholders: std::collections::HashMap<usize, (String, String)> =
         std::collections::HashMap::new();
@@ -289,9 +286,16 @@ pub fn build_rows(
             let prefix = slot_prefix(i, show_slots);
             let (text, is_placeholder) = match entry {
                 RowEntry::Live(p) => (format!("{}{}", prefix, p), false),
-                RowEntry::Placeholder { .. } => {
-                    (format!("{}?  (resolving)", prefix), true)
-                }
+                RowEntry::Placeholder {
+                    saved_tab_name,
+                    saved_pane_title,
+                } => (
+                    format!(
+                        "{}{} | {}  (resolving)",
+                        prefix, saved_tab_name, saved_pane_title
+                    ),
+                    true,
+                ),
             };
             let is_selected = state.selected == i;
             rows.push(RenderRow {
@@ -653,7 +657,7 @@ mod tests {
         assert_eq!(rows.len(), 2);
         assert!(!rows[0].is_placeholder);
         assert!(rows[1].is_placeholder);
-        assert!(rows[1].text.contains("?  (resolving)"));
+        assert!(rows[1].text.contains("b | y  (resolving)"));
         assert!(rows[1].text.starts_with("2  "));
     }
 
@@ -669,7 +673,10 @@ mod tests {
         let filtered = vec![0]; // Only panes[0] matches "x"
         let rows = build_rows(&s, &entries, &mut m, &filtered, true, 100);
         assert_eq!(rows.len(), 1);
-        assert!(!rows[0].text.starts_with("1  "), "no slot prefix in filter mode");
+        assert!(
+            !rows[0].text.starts_with("1  "),
+            "no slot prefix in filter mode"
+        );
         assert!(rows[0].is_selected);
     }
 

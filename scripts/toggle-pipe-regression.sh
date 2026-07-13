@@ -92,12 +92,20 @@ cargo build --release -p harpoon --target wasm32-wasip1 \
 # These are core decisions, not shim guesses (Constitution I).
 CORE_TEST_RC=0
 cargo test -p harpoon-core --manifest-path "$REPO_ROOT/Cargo.toml" \
-  first_render_waits_for_bootstrap_or_disk >/dev/null 2>&1 || CORE_TEST_RC=$?
-assert "S0 first-render gate deterministic instrumentation" "$CORE_TEST_RC"
+  first_render_waits_for_full_store_projection_or_terminal_denial >/dev/null 2>&1 || CORE_TEST_RC=$?
+assert "S0 first-render full-store projection instrumentation" "$CORE_TEST_RC"
 CORE_TEST_RC=0
 cargo test -p harpoon-core --manifest-path "$REPO_ROOT/Cargo.toml" \
   full_manifest_requires_coverage_of_every_known_tab >/dev/null 2>&1 || CORE_TEST_RC=$?
-assert "S0 partial-manifest prune guard deterministic instrumentation" "$CORE_TEST_RC"
+assert "S0 partial-manifest readiness instrumentation" "$CORE_TEST_RC"
+CORE_TEST_RC=0
+cargo test -p harpoon-core --manifest-path "$REPO_ROOT/Cargo.toml" \
+  deferred_prune_resumes_once_ready_and_compacts_slots >/dev/null 2>&1 || CORE_TEST_RC=$?
+assert "S0 deferred prune resumes after readiness instrumentation" "$CORE_TEST_RC"
+CORE_TEST_RC=0
+cargo test -p harpoon-core --manifest-path "$REPO_ROOT/Cargo.toml" \
+  disk_ids_are_cleared_before_cross_restart_identity_use >/dev/null 2>&1 || CORE_TEST_RC=$?
+assert "S0 stale pane-id collision instrumentation" "$CORE_TEST_RC"
 
 PERM_FILE="$(zellij setup --check 2>/dev/null | sed -n 's/^\[CACHE DIR\]: //p')/permissions.kdl"
 if [ -f "$PERM_FILE" ]; then

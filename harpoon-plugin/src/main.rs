@@ -19,14 +19,14 @@ use zellij_tile::prelude::*;
 use harpoon_core::{
     bootstrap_arrival_decision, build_header, build_hint_line, build_row_entries, build_rows,
     compute_layout_budget, decode_bootstrap, disk_load_decision, dispatch, encode_bootstrap,
-    filtered_indices, focused_idx as core_focused_idx, is_shrinking_save,
-    manifest_covers_tabs, merge_missing, parse_pane_id, reanchor_selected_to_focus,
-    post_focus_fullscreen_plan, refresh_resolved_identities, resolve_restore_round,
+    filtered_indices, focused_idx as core_focused_idx, guarded_save_decision, manifest_covers_tabs,
+    merge_missing, parse_pane_id, post_focus_fullscreen_plan, prune_bookmarks_by_pane_ids,
+    reanchor_selected_to_focus, refresh_resolved_identities, resolve_restore_round,
     shrinking_save_allowed, slot_for_pane, store_ready_to_render, toggle_plan, AdoptDecision,
-    BookmarkStore, BootstrapPayload, Config, DiskLoadDecision, DispatchContext, DispatchState,
-    DuplicateToggleGuard, Effect, FullscreenGroundTruth, HighlightKind, InputKey, MatcherImpl,
-    ModifierSet, Pane, RenderRow, StoreBootState, ToggleAction, ToggleGroundTruth, VisiblePane,
-    BOOTSTRAP_PIPE_NAME, BOOTSTRAP_VERSION,
+    BookmarkStore, BootstrapPayload, Config, DeferredPruneGuard, DiskLoadDecision, DispatchContext,
+    DispatchState, DuplicateToggleGuard, Effect, FullscreenGroundTruth, GuardedSaveDecision,
+    HighlightKind, InputKey, MatcherImpl, ModifierSet, Pane, RenderRow, StoreBootState,
+    ToggleAction, ToggleGroundTruth, VisiblePane, BOOTSTRAP_PIPE_NAME, BOOTSTRAP_VERSION,
 };
 
 /// Phase 0.1 verified: y=0 IS visible in zellij 0.44.1 floating plugin
@@ -117,6 +117,10 @@ struct State {
     /// pipe (armed from the adopted payload's `handled_cli_pipe`).
     /// AC: pane-pipe-api.duplicate-toggle-delivery-tolerance.
     dup_guard: DuplicateToggleGuard,
+    /// Live pane ids that disappeared while a frozen store was protected
+    /// from shrinking. Core releases them only after disk+full-manifest
+    /// readiness so normal pruning resumes exactly once.
+    deferred_prunes: DeferredPruneGuard,
 }
 
 register_plugin!(State);
@@ -176,13 +180,13 @@ impl ZellijPlugin for State {
                 self.tab_info = Some(tab_info);
                 self.refresh_manifest_readiness();
                 self.update_panes(true);
-                should_render = store_ready_to_render(&self.boot);
+                should_render = self.store_ready_to_render();
             }
             Event::PaneUpdate(pane_manifest) => {
                 self.pane_manifest = Some(pane_manifest);
                 self.refresh_manifest_readiness();
                 self.update_panes(true);
-                should_render = store_ready_to_render(&self.boot);
+                should_render = self.store_ready_to_render();
             }
             Event::PermissionRequestResult(status) => {
                 if self.handle_permission_result(status) {
@@ -213,12 +217,11 @@ impl ZellijPlugin for State {
                                 self.persistence.on_load_command(&mut self.store, &content)
                             {
                                 eprintln!("{e}");
-                            } else {
-                                // After bookmarks load, attempt a restore
-                                // round in case panes are already visible.
-                                self.update_panes(true);
-                                should_render = true;
                             }
+                            // After resolution, attempt restore even for an
+                            // explicit parse failure (status-quo empty UI).
+                            self.update_panes(true);
+                            should_render = self.store_ready_to_render();
                         }
                         DiskLoadDecision::MergeMissing => {
                             if let Some(disk) = Persistence::parse_content(&content) {
@@ -226,9 +229,11 @@ impl ZellijPlugin for State {
                                 // (index=None); memory mutations untouched.
                                 merge_missing(&mut self.store.bookmarks, &disk);
                                 self.persistence.set_baseline(disk);
-                                self.update_panes(true);
-                                should_render = true;
                             }
+                            // Explicit resolution flushes any queued user
+                            // mutation even when content was malformed.
+                            self.update_panes(true);
+                            should_render = self.store_ready_to_render();
                         }
                         DiskLoadDecision::ReconcileBaseline => {
                             // Bootstrap is the sender's newer LIVE state;
@@ -239,7 +244,7 @@ impl ZellijPlugin for State {
                                 self.persistence.set_baseline(disk);
                             }
                             self.update_panes(true);
-                            should_render = true;
+                            should_render = self.store_ready_to_render();
                         }
                     }
                 }
@@ -247,12 +252,7 @@ impl ZellijPlugin for State {
             Event::Key(key) => {
                 let input = key_event_to_input(&key);
                 let ctx = self.build_dispatch_context();
-                let effects = dispatch(
-                    &mut self.dispatch_state,
-                    &ctx,
-                    &mut self.store,
-                    input,
-                );
+                let effects = dispatch(&mut self.dispatch_state, &ctx, &mut self.store, input);
                 // Stash filtered_indices for render path.
                 self.last_filtered_indices = ctx.filtered_indices;
                 self.apply_effects(&effects, &mut should_render);
@@ -280,6 +280,7 @@ impl ZellijPlugin for State {
         // `MessagePlugin` pipe — PipeSource::Keybind — probe-verified
         // 2026-07-11); the remaining names are CLI-facing surfaces.
         let is_cli = matches!(pipe_message.source, PipeSource::Cli(_));
+        let is_plugin = matches!(pipe_message.source, PipeSource::Plugin(_));
         // Never call gated response-decoding/query/unblock hosts pre-grant.
         // Queue CLI messages (not keybind/plugin-source messages) and drain
         // after PermissionRequestResult(Granted). This preserves cold
@@ -312,7 +313,7 @@ impl ZellijPlugin for State {
             // AC: pane-pipe-api.respawn-state-hand-off — deny-safe pure-state
             // adoption (the payload arrives PRE-GRANT; no response-decoding
             // host calls in this arm or anything it calls).
-            BOOTSTRAP_PIPE_NAME => {
+            BOOTSTRAP_PIPE_NAME if is_plugin => {
                 should_render = self.handle_bootstrap(&payload);
             }
             "slot_for_pane" if is_cli && self.permissions_granted => {
@@ -343,20 +344,17 @@ impl ZellijPlugin for State {
     }
 
     fn render(&mut self, rows: usize, cols: usize) {
-        // AC pane-pipe-api.respawn-state-hand-off: suppress empty interim
-        // output. A successor's first ACTUAL render happens only after the
-        // bootstrap payload is adopted (and immediately resolved against
-        // cached PaneUpdate/TabUpdate) or cold-boot disk load resolves.
-        if !store_ready_to_render(&self.boot) {
+        // Build row projection before the gate: core requires every adopted
+        // bookmark to be present as live row or persisted placeholder, so a
+        // bootstrap-before-manifest ordering cannot expose a partial list.
+        let entries = build_row_entries(&self.dispatch_state, &self.store);
+        if !store_ready_to_render(&self.boot, entries.len(), self.store.bookmarks.len()) {
             return;
         }
         let rows = rows as u16;
         let cols_u = cols;
 
         let budget = compute_layout_budget(rows);
-
-        // Build the row source: live panes + placeholders.
-        let entries = build_row_entries(&self.dispatch_state, &self.store);
 
         // Build header.
         let visible_count = entries
@@ -424,6 +422,12 @@ impl ZellijPlugin for State {
 // ── State helpers ──────────────────────────────────────────────────────────────
 
 impl State {
+    /// Core-owned first-render decision over the actual row projection.
+    fn store_ready_to_render(&self) -> bool {
+        let presented = build_row_entries(&self.dispatch_state, &self.store).len();
+        store_ready_to_render(&self.boot, presented, self.store.bookmarks.len())
+    }
+
     /// Build the per-event `DispatchContext` from cached pane_manifest +
     /// tab_info. Sorts visible_panes by (tab.position ASC, PaneInfo.id ASC)
     /// for deterministic `A` add-all order. Computes filtered_indices using
@@ -481,7 +485,6 @@ impl State {
         out
     }
 
-
     /// Find the user's currently-focused terminal pane (the one they came
     /// from when opening harpoon).
     fn collect_focused_pane(&self) -> Option<Pane> {
@@ -522,15 +525,35 @@ impl State {
             }
         }
 
+        // A frozen store may have lost a live pane while shrinking was
+        // forbidden. Once disk + full-manifest readiness holds, core releases
+        // only ids still absent; prune bookmark + sparse slot exactly once.
+        let pruning_ready = shrinking_save_allowed(&self.boot);
+        if pruning_ready {
+            let visible_ids: Vec<u32> = valid_ids.iter().copied().collect();
+            let deferred = self.deferred_prunes.take_prunable(&self.boot, &visible_ids);
+            let mut slots = prune_bookmarks_by_pane_ids(&mut self.store, &deferred);
+            slots.sort_unstable_by(|a, b| b.cmp(a));
+            for slot in slots {
+                if slot < self.dispatch_state.panes.len() {
+                    self.dispatch_state.panes.remove(slot);
+                }
+            }
+        }
+
         // Drop panes whose id is no longer valid. Pre-freeze (sparse) keeps
         // None placeholders untouched; post-freeze (dense) compacts the
         // disappearance.
-        if !self.store.frozen || !shrinking_save_allowed(&self.boot) {
+        if !self.store.frozen || !pruning_ready {
             // Pre-freeze: turn invalid Some entries back into None.
             for opt in self.dispatch_state.panes.iter_mut() {
                 if let Some(p) = opt.as_ref() {
                     if !valid_ids.contains(&p.id) {
-                        // Remove map entry; bookmark stays in store.bookmarks.
+                        // A post-freeze disappearance is a deferred prune,
+                        // not a permanent unresolved placeholder.
+                        if self.store.frozen {
+                            self.deferred_prunes.remember(p.id);
+                        }
                         self.store.pane_id_to_bookmark_idx.remove(&p.id);
                         *opt = None;
                     }
@@ -652,9 +675,7 @@ impl State {
         let truth = match get_focused_pane_info() {
             Ok((tab_id, PaneId::Terminal(focused_id))) if focused_id == id => {
                 match get_tab_info(tab_id) {
-                    Some(tab) if tab.is_fullscreen_active => {
-                        FullscreenGroundTruth::Fullscreen
-                    }
+                    Some(tab) if tab.is_fullscreen_active => FullscreenGroundTruth::Fullscreen,
                     Some(_) => FullscreenGroundTruth::Tiled,
                     // Tab lookup failed: state unknown — never toggle blind.
                     None => FullscreenGroundTruth::Unknown,
@@ -772,7 +793,11 @@ impl State {
             }
             should_render
         } else {
-            false
+            // Denied aggregate capabilities cannot disk-load, but this is a
+            // terminal readiness outcome: render status-quo empty UI rather
+            // than suppress output forever. No gated host call follows.
+            self.boot.permission_denied = true;
+            true
         }
     }
 
@@ -838,7 +863,11 @@ impl State {
                 // cache is absent update_panes is a deny-safe no-op; a later
                 // event resolves it.
                 self.update_panes(false);
-                true
+                // Cached-grant ordering is possible: if bootstrap supplied
+                // the first session name after grant, initiate reconciliation
+                // now. Pre-grant this helper is a pure no-op.
+                self.start_disk_load_if_ready();
+                self.store_ready_to_render()
             }
         }
     }
@@ -850,17 +879,16 @@ impl State {
     /// (deferred fail-closed — the load reconciliation's update_panes flushes
     /// it once the baseline resolves). AC: reorder.destructive-save-guard
     fn guarded_save(&mut self) {
-        if !shrinking_save_allowed(&self.boot) {
-            let shrinking = match self.persistence.last_persisted() {
-                Some(prev) => is_shrinking_save(prev, &self.store.bookmarks),
-                None => true, // unknown baseline — cannot prove non-shrinking
-            };
-            if shrinking {
-                return;
-            }
+        match guarded_save_decision(
+            &self.boot,
+            self.persistence.last_persisted(),
+            &self.store.bookmarks,
+        ) {
+            GuardedSaveDecision::Save => self
+                .persistence
+                .save_if_changed(&self.store, &self.session_name),
+            GuardedSaveDecision::Defer => {}
         }
-        self.persistence
-            .save_if_changed(&self.store, &self.session_name);
     }
 
     /// AC: pane-pipe-api.toggle-pipe-invocation
