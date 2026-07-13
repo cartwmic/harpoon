@@ -35,22 +35,25 @@ review.md equals the merge-base before the first implementation commit.
 - **Verification:** native suite green; no shim changes in this step.
 - **Rollback:** `git revert` the step commit.
 
-## Step 3 — Core: duplicate-toggle readiness (T2.2)
+## Step 3 — Core: duplicate-toggle pipe identity (T2.2)
 
 - **Covers:** T2.2
 - **Action:** same 5-step cycle; tests cite
-  `pane-pipe-api.duplicate-toggle-delivery-tolerance` — stale toggle before
-  readiness ignored; post-readiness toggle honored (hide branch reachable);
-  readiness = bootstrap-or-load resolved AND first shown render, a pure
-  state predicate (no timers).
+  `pane-pipe-api.duplicate-toggle-delivery-tolerance` — hand-off payload
+  carries the sender-handled CLI pipe id; successor ignores exactly one
+  toggle from that source while still releasing the client; keybind or new
+  CLI sources are honored (hide branch reachable). Pure identity predicate,
+  no timers/readiness proxy (probe: stale delivery arrives after show).
 - **Verification / Rollback:** as Step 2.
 
 ## Step 4 — Core: save guard + restore hardening (T2.3, T2.4)
 
 - **Covers:** T2.3, T2.4
 - **Action:** two 5-step cycles. Guard tests cite
-  `reorder.destructive-save-guard` (suppress shrink pre-conditions; allow
-  additive; resume prune after both observed). Restore tests cite
+  `reorder.destructive-save-guard` (suppress shrink + preserve in-memory
+  bookmarks before readiness; full manifest = coverage of every known tab;
+  allow additive/reorder mutations, queue unknown-baseline disk flush;
+  resume prune after both observed). Restore tests cite
   `reorder.restore-identity-tracks-live-panes` (id-carry through hand-off
   payload; title-drift refresh emits a save; freeze/placeholder/best-effort
   scenarios from the existing reorder suite stay green — run them
@@ -79,10 +82,12 @@ review.md equals the merge-base before the first implementation commit.
 - **Covers:** T4.1, T4.2
 - **Pre-conditions:** wasm builds; tmux available; scratch sessions only
   (NEVER the user's live workspace session — standing rule).
-- **Action:** add the four scenarios (instant targets on cross-tab respawn;
-  stale-toggle tolerance; prune-guard disk-shrink window; permission-denied
-  degrade) to `scripts/toggle-pipe-regression.sh`; README permission +
-  regrant + hand-off notes.
+- **Action:** add scenarios (instant targets on cross-tab respawn;
+  stale-toggle tolerance; prune-guard disk-shrink window;
+  aggregate-permission-denied no-panic) to
+  `scripts/toggle-pipe-regression.sh`, plus deterministic core
+  instrumentation for first-render and partial-manifest host states; README
+  permission + regrant + hand-off notes.
 - **Verification:** full regression script pass (existing 11 + new
   scenarios); record counts in review.md Execution Notes.
 - **Rollback:** revert; scenarios are additive.
