@@ -278,10 +278,12 @@ The plugin requests `RunCommands`, `ReadApplicationState`,
 `slot_for_pane` produces no output), `OpenTerminalsOrPlugins` (gates
 `open_plugin_pane_floating` — the toggle's cross-tab respawn), and
 `MessageAndLaunchOtherPlugins` (gates the destination-id `bootstrap_store`
-message that hands the live bookmark list to a respawned successor). A denied
-response-decoding spawn call PANICS the plugin, so host queries/spawns remain
-grant-gated; a hand-off unavailable because its permission was denied degrades
-to the successor's existing disk-load fallback.
+message that hands the live bookmark list to a respawned successor). Zellij
+0.44.3 reports one aggregate grant/denial for this whole vector (no
+per-permission identity): on aggregate denial harpoon makes no gated
+response-decoding/query/output call and stays deny-safe (show in place, no
+panic). If the aggregate grant succeeds but hand-off payload creation is
+unavailable, the spawned successor uses its independent disk-load fallback.
 
 After deploying a wasm whose permission set grew (e.g. the `ReadCliPipes`
 addition), the grant must be renewed at runtime:
