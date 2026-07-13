@@ -86,8 +86,8 @@
   re-delivered toggle does not hide the menu; (c) prune-guard — disk file
   never shrinks during early-save window (plus deterministic partial-
   manifest, deferred-prune, and stale-id-collision instrumentation); (d)
-  aggregate permission denial resolves to visible empty UI and is deny-safe
-  (no panic, session/plugin survive).
+  aggregate permission denial is inert/deny-safe (no panic, session/plugin
+  survive while terminal remains visible; no impossible post-denial show).
   - intent: feature
   - files_allowed:
       - scripts/**

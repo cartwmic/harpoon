@@ -69,8 +69,10 @@ remains the cold-boot fallback whenever no bootstrap payload arrives.
   `OpenTerminalsOrPlugins` and `MessageAndLaunchOtherPlugins`)
 - **THEN** the plugin SHALL invoke no gated response-decoding host call (no
   panic) and SHALL use the deny-safe show-in-place fallback
-- **AND** denial SHALL resolve render readiness so the status-quo empty menu
-  UI is visible rather than a permanently blank/suppressed pane
+- **AND** because aggregate denial includes `ChangeApplicationState`, zellij
+  may suppress the denied plugin after prompt teardown; harpoon SHALL remain
+  inert/alive while the user's terminal remains visible (it SHALL NOT attempt
+  an ungranted post-denial show)
 - **AND** queued CLI messages SHALL remain unexecuted rather than assume the
   denied query/output/unblock capabilities
 
