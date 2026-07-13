@@ -13,6 +13,7 @@
 //! design rationale.
 
 pub mod bookmark;
+pub mod bootstrap;
 pub mod command;
 pub mod config;
 pub mod dispatch;
@@ -31,6 +32,12 @@ pub mod slot;
 
 // Re-export the most-used types at the crate root for ergonomics.
 pub use bookmark::{BookmarkStore, PaneBookmark};
+pub use bootstrap::{
+    bootstrap_arrival_decision, decode_bootstrap, disk_load_decision, encode_bootstrap,
+    is_shrinking_save, merge_missing, shrinking_save_allowed, AdoptDecision, BootstrapPayload,
+    DiskLoadDecision, DuplicateToggleGuard, StoreBootState, BOOTSTRAP_PIPE_NAME,
+    BOOTSTRAP_VERSION,
+};
 pub use command::handle_command_key;
 pub use config::{Config, MatcherKind};
 pub use dispatch::{
@@ -53,5 +60,5 @@ pub use render::{
     build_header, build_hint_line, build_row_entries, build_rows, compute_layout_budget,
     HeaderLine, HighlightKind, LayoutBudget, RenderHeader, RenderRow, RowEntry,
 };
-pub use restore::{resolve_restore_round, VisiblePane};
+pub use restore::{refresh_resolved_identities, resolve_restore_round, VisiblePane};
 pub use slot::{slot_char_from_index, slot_index_from_char};

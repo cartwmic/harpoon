@@ -12,7 +12,7 @@
 
 ## 2. Core decision logic (harpoon-core, native tests)
 
-- [ ] 2.1 Bootstrap adoption + precedence: pure core logic deciding how an
+- [x] 2.1 Bootstrap adoption + precedence: pure core logic deciding how an
   adopted `bootstrap_store` payload (v2 envelope + session name) merges with
   a disk-load result — adopted payload wins while the disk load is
   unresolved; a late disk result reconciles and never clobbers newer
@@ -21,7 +21,7 @@
   - intent: feature
   - files_allowed:
       - harpoon-core/**
-- [ ] 2.2 Duplicate-toggle readiness condition: deterministic state
+- [x] 2.2 Duplicate-toggle readiness condition: deterministic state
   condition (bootstrap-or-load resolved AND first shown render complete)
   under which a `toggle` is honored; stale re-delivered toggles before
   readiness are ignored, never wall-clock debounced. Tests cite
@@ -29,14 +29,14 @@
   - intent: feature
   - files_allowed:
       - harpoon-core/**
-- [ ] 2.3 Destructive save guard: pure decision forbidding shrinking saves
+- [x] 2.3 Destructive save guard: pure decision forbidding shrinking saves
   until BOTH a resolved disk load AND a full pane manifest have been
   observed; additive/reordering saves always allowed; pruning resumes after
   both observed. Tests cite `reorder.destructive-save-guard`.
   - intent: fix
   - files_allowed:
       - harpoon-core/**
-- [ ] 2.4 Restore identity hardening: id-first resolution carries through
+- [x] 2.4 Restore identity hardening: id-first resolution carries through
   the hand-off payload (successor resolves by id without title matching);
   resolved bookmarks refresh persisted `(tab_name, pane_title)` on observed
   drift; freeze/placeholder/best-effort semantics regress nothing. Tests

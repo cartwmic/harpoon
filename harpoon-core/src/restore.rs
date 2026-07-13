@@ -153,6 +153,35 @@ pub fn resolve_restore_round(
     }
 }
 
+/// Keep RESOLVED bookmarks' persisted identity current with their live
+/// panes (AC `reorder.restore-identity-tracks-live-panes`): pane titles are
+/// volatile (pi rewrites them continuously) and pane ids reset on session
+/// restart, so the on-disk `(tab_name, pane_title)` fallback must always be
+/// the most recently observed identity — otherwise a restart's title
+/// fallback matches against stale titles and misses live panes.
+///
+/// Walks `pane_id_to_bookmark_idx` (the resolved set), refreshes any
+/// bookmark whose live pane reports a different `tab_name`/`pane_title`,
+/// and returns `true` iff anything changed (caller persists via the normal
+/// `save_if_changed` path). Pure state — no host calls.
+pub fn refresh_resolved_identities(store: &mut BookmarkStore, visible: &[VisiblePane]) -> bool {
+    let mut changed = false;
+    for (&pane_id, &bk_idx) in &store.pane_id_to_bookmark_idx.clone() {
+        let Some(v) = visible.iter().find(|v| v.id == pane_id) else {
+            continue; // not visible this round; nothing to refresh
+        };
+        let Some(b) = store.bookmarks.get_mut(bk_idx) else {
+            continue;
+        };
+        if b.tab_name != v.tab_name || b.pane_title != v.pane_title {
+            b.tab_name = v.tab_name.clone();
+            b.pane_title = v.pane_title.clone();
+            changed = true;
+        }
+    }
+    changed
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -471,5 +500,45 @@ mod tests {
 
         assert_eq!(panes[0].as_ref().unwrap().id, 10);
         assert_eq!(store.bookmarks[0].id, Some(10));
+    }
+
+    /// reorder.restore-identity-tracks-live-panes: a resolved pane's title
+    /// drift is re-persisted so the on-disk fallback identity stays fresh.
+    #[test]
+    fn resolved_title_drift_refreshes_bookmark_identity() {
+        let mut store = BookmarkStore {
+            bookmarks: vec![bm_id("work", "nvim", Some(0), Some(7))],
+            ..Default::default()
+        };
+        store.pane_id_to_bookmark_idx.insert(7, 0);
+
+        // Same pane id, retitled by its program (pi-style).
+        let visible = vec![vp(7, "work", "pi — fixing restore")];
+        let changed = refresh_resolved_identities(&mut store, &visible);
+
+        assert!(changed);
+        assert_eq!(store.bookmarks[0].pane_title, "pi — fixing restore");
+        assert_eq!(store.bookmarks[0].tab_name, "work");
+        assert_eq!(store.bookmarks[0].id, Some(7));
+    }
+
+    /// reorder.restore-identity-tracks-live-panes: no drift → no change
+    /// (so save_if_changed stays quiet); invisible panes are untouched.
+    #[test]
+    fn refresh_is_noop_without_drift_or_visibility() {
+        let mut store = BookmarkStore {
+            bookmarks: vec![
+                bm_id("work", "nvim", Some(0), Some(7)),
+                bm_id("logs", "tail", Some(1), Some(8)),
+            ],
+            ..Default::default()
+        };
+        store.pane_id_to_bookmark_idx.insert(7, 0);
+        store.pane_id_to_bookmark_idx.insert(8, 1);
+
+        // Pane 7 unchanged; pane 8 not visible this round.
+        let visible = vec![vp(7, "work", "nvim")];
+        assert!(!refresh_resolved_identities(&mut store, &visible));
+        assert_eq!(store.bookmarks[1].pane_title, "tail");
     }
 }
