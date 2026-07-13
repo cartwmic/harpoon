@@ -131,6 +131,13 @@ non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -
   spawn-id-unavailable close, and deterministic/interactive evidence.
   Post-fix regression 23/23: adds S0 render/full-manifest instrumentation and
   S11 real permission prompt denial (pane/session alive, no new panic).
+- 2026-07-13 — Round-2 candidate worktree `5e6692c` revalidated: core
+  261/261, wasm32-wasip1 release, strict OpenSpec, shell syntax, regression
+  23/23 all green. Runtime permission experiment also established zellij's
+  aggregate result semantics and the need to queue pre-grant CLI pipes:
+  without queueing, S7 cold jump was dropped; with queue+post-grant drain,
+  S7 passes and every drained CLI client follows the normal exactly-once
+  release path.
 
 ## Fidelity Round Ledger
 
