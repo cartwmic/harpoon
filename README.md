@@ -118,10 +118,16 @@ discriminator that survives reload, which the zellij API doesn't expose.)
 
 When the persistence file has bookmarks that haven't yet appeared as live
 panes (typically a sub-second window after session reopen), those slots
-render as `<slot>  ?  (resolving)` rather than collapsing the gap. Pressing
-the slot key while it's a placeholder is a no-op — guarantees pressing `2`
-always jumps to the pane the user pinned at slot 2 OR no-ops, never to the
-wrong pane.
+render as `<slot>  <saved-tab> | <saved-title>  (resolving)` rather than
+collapsing or hiding the target. Pressing the slot key while it's a
+placeholder is a no-op — guarantees pressing `2` always jumps to the pane
+the user pinned at slot 2 OR no-ops, never to the wrong pane.
+
+Pane ids are trusted only for live state and targeted predecessor→successor
+hand-off inside one zellij session generation. Ids parsed from disk are
+cleared before restore because zellij can reuse them after restart; cold
+restore uses the continuously refreshed exact `(tab_name, pane_title)`
+fallback instead.
 
 The first time the user mutates the list (`a`/`A`/`d`/`K`/`J`), unresolved
 saved-position bookmarks are converted to append-on-resolve and the
@@ -319,8 +325,10 @@ config + deploy change (operational — outside this repo's test gate):
 4. Answer the `OpenTerminalsOrPlugins` AND
    `MessageAndLaunchOtherPlugins` permission prompt in a VISIBLE plugin pane
    (new grants — same regrant discipline as `ReadCliPipes` above; an
-   unanswered prompt leaves toggles inert, while an unavailable bootstrap
-   permission degrades cross-tab state transfer to disk load).
+   unanswered prompt leaves toggles inert; aggregate denial stays in place,
+   renders the empty menu UI, and makes no gated host call. If grant succeeds
+   but bootstrap payload creation is unavailable, the spawned successor
+   independently disk-loads).
 5. Verify a round-trip: `Ctrl y` shows the menu floating on the current
    tab → `Esc` hides → switch tab → `Ctrl y` again shows it on the NEW tab
    (menu and view together — the wrong-tab jump is gone; cross-tab invokes
