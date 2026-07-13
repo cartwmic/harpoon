@@ -797,6 +797,11 @@ impl State {
             // terminal readiness outcome: render status-quo empty UI rather
             // than suppress output forever. No gated host call follows.
             self.boot.permission_denied = true;
+            self.pending_cold_show = false;
+            // Aggregate denial includes ChangeApplicationState: zellij
+            // tears down the prompt, suppresses the plugin, and ignores a
+            // post-denial show_self (runtime-proven). Stay inert/deny-safe;
+            // the user's terminal remains visible and the plugin survives.
             true
         }
     }
