@@ -62,6 +62,22 @@ immutable from here. -->
 <!-- Transient observations appended during apply. One-line entries when a
 non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -->
 
+- 2026-07-13 — Task 1.1: spike evidence preserved from /tmp into
+  evidence/ (log excerpt confirms spawn-id return, 119ms pre-grant
+  bootstrap delivery, ~380ms same-uuid CLI pipe re-delivery).
+- 2026-07-13 — Tasks 2.1–2.4 (core, 259 native tests green): duplicate
+  tolerance mechanism CORRECTED from the propose-time sketch — probe
+  timing proves the re-delivered pipe arrives AFTER the menu is shown, so
+  the spec's "readiness after first shown render" parenthetical could not
+  catch it; amended spec/proposal (Q3) to deterministic pipe-identity
+  matching (payload carries sender-handled CLI pipe id, one-shot ignore,
+  client still released). Keybind-sourced pipes carry no id and are never
+  suppressed (re-delivery is a CLI-pipe blocking-mechanism behavior).
+- 2026-07-13 — Assumption: adopted bootstrap counts as the disk baseline
+  for the destructive-save guard (sender's disk verified current at send
+  time); disk reconcile after early user mutation = MergeMissing (disk
+  entries absent from memory append with index=None), never clobber.
+
 ## Fidelity Round Ledger
 
 | Round | Fidelity | Per-judge verdicts | Attested HEAD |
