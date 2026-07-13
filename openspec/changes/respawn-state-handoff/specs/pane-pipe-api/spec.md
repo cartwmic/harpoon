@@ -39,12 +39,16 @@ remains the cold-boot fallback whenever no bootstrap payload arrives.
   only, making no response-decoding host call in the adoption path
 - **AND** the plugin SHALL NOT panic
 
-#### Scenario: late disk load does not clobber newer mutations
+#### Scenario: late disk load reconciles without clobbering newer mutations
 - **GIVEN** the successor adopted a bootstrap payload and the user then
   mutated the store (e.g. added a bookmark)
-- **WHEN** the successor's own disk load result arrives afterwards
-- **THEN** the in-memory store SHALL retain the user's newer mutation (the
-  stale disk result reconciles; it never replaces newer in-memory state)
+- **WHEN** the successor's independently initiated disk load result arrives
+  afterwards
+- **THEN** the in-memory store SHALL retain the adopted state and user's
+  newer mutation verbatim
+- **AND** the disk result SHALL be consumed as the persistence baseline for
+  destructive-save comparison (reconciliation input), never replace or
+  append stale rows into newer in-memory state
 
 #### Scenario: spawn id unavailable degrades to disk load
 - **IF** the spawn host call returns no pane id (or a non-plugin id)
@@ -53,12 +57,18 @@ remains the cold-boot fallback whenever no bootstrap payload arrives.
 - **AND** the successor SHALL populate its store via the existing disk-load
   path (behavior never worse than the status quo)
 
-#### Scenario: bootstrap send denied degrades to disk load
-- **IF** the permission required for the bootstrap send is denied or not
-  yet granted at send time
-- **THEN** the outgoing instance SHALL NOT invoke the gated host call
-  (no panic; response-decoding host calls are grant-gated), SHALL skip the
-  hand-off, and the successor SHALL fall back to the disk-load path
+#### Scenario: unavailable hand-off degrades safely
+- **IF** payload encoding fails after a successor pane id was returned
+- **THEN** the outgoing instance SHALL skip the bootstrap send, close, and
+  the successor SHALL fall back to its independently initiated disk load
+
+#### Scenario: aggregate permission denial is deny-safe
+- **IF** zellij denies the aggregate permission request (which includes both
+  `OpenTerminalsOrPlugins` and `MessageAndLaunchOtherPlugins`)
+- **THEN** the plugin SHALL invoke no gated response-decoding host call (no
+  panic) and SHALL use the deny-safe show-in-place fallback
+- **AND** queued CLI messages SHALL remain unexecuted rather than assume the
+  denied query/output/unblock capabilities
 
 ### Requirement: Duplicate Toggle Delivery Tolerance
 

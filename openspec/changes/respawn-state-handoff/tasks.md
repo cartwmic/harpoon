@@ -21,18 +21,20 @@
   - intent: feature
   - files_allowed:
       - harpoon-core/**
-- [x] 2.2 Duplicate-toggle readiness condition: deterministic state
-  condition (bootstrap-or-load resolved AND first shown render complete)
-  under which a `toggle` is honored; stale re-delivered toggles before
-  readiness are ignored, never wall-clock debounced. Tests cite
+- [x] 2.2 Duplicate-toggle pipe-identity guard: the hand-off payload carries
+  the sender-handled CLI pipe id; the successor ignores exactly one toggle
+  from that same source while still releasing the client. Keybind/different
+  CLI sources are honored; never wall-clock/readiness debounced. Tests cite
   `pane-pipe-api.duplicate-toggle-delivery-tolerance`.
   - intent: feature
   - files_allowed:
       - harpoon-core/**
-- [x] 2.3 Destructive save guard: pure decision forbidding shrinking saves
-  until BOTH a resolved disk load AND a full pane manifest have been
-  observed; additive/reordering saves always allowed; pruning resumes after
-  both observed. Tests cite `reorder.destructive-save-guard`.
+- [x] 2.3 Destructive save guard: pure decisions forbid shrinking saves and
+  preserve bookmarks in memory until BOTH a resolved disk load AND a full
+  pane manifest (coverage of every known tab) have been observed;
+  additive/reordering mutations stay allowed (unknown-baseline flush queues
+  until reconcile); pruning resumes after both observed. Tests cite
+  `reorder.destructive-save-guard`.
   - intent: fix
   - files_allowed:
       - harpoon-core/**
@@ -51,15 +53,16 @@
   returned pane id, send `bootstrap_store` via `pipe_message_to_plugin`
   with `destination_plugin_id` (payload from core serializer), then
   `close_self()`; grant-gate the send; `None`/non-plugin id or
-  denied/ungranted permission skips the hand-off and degrades to the
-  disk-load path (never panic).
+  unavailable payload after grant skips hand-off and degrades to successor
+  disk load; aggregate permission denial stays deny-safe/show-in-place
+  (never panic).
   - intent: feature
   - files_allowed:
       - harpoon-plugin/**
 - [x] 3.2 `bootstrap_store` pipe handler: deny-safe, pure-state adoption
   (no response-decoding host calls — payload can arrive pre-grant), feeding
-  core's adoption logic; wire duplicate-toggle readiness into the toggle
-  pipe path.
+  core's adoption logic; wire same-pipe-id one-shot duplicate tolerance into
+  the toggle pipe path.
   - intent: feature
   - files_allowed:
       - harpoon-plugin/**
@@ -80,9 +83,11 @@
 
 - [x] 4.1 Extend `scripts/toggle-pipe-regression.sh` (tmux-hosted scratch
   sessions ONLY): (a) cross-tab respawn presents persisted targets on first
-  render; (b) stale re-delivered toggle does not hide the menu; (c)
-  prune-guard — disk file never shrinks during the early-save window; (d)
-  permission-denied degrade (no panic, disk-load fallback).
+  render (plus deterministic render-gate instrumentation); (b) stale
+  re-delivered toggle does not hide the menu; (c) prune-guard — disk file
+  never shrinks during the early-save window (plus deterministic partial-
+  manifest instrumentation); (d) aggregate permission denial is deny-safe
+  (no panic, session/plugin survive).
   - intent: feature
   - files_allowed:
       - scripts/**

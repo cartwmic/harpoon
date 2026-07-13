@@ -6,12 +6,22 @@
 
 THE plugin SHALL suppress any save that would remove bookmarks present in
 the last persisted state (a shrinking save) WHILE the instance has NOT yet
-observed BOTH a resolved disk load (success or explicit failure) AND a
-full pane manifest. Additive or reordering saves SHALL remain allowed
-during this window. Once both conditions have been observed, normal
-reconciliation pruning and its saves apply unchanged. The
-guard decision SHALL be pure logic in `harpoon-core` with native tests
-(Constitution I).
+observed BOTH a resolved disk load (success or explicit failure) AND a full
+pane manifest, and SHALL preserve those bookmarks in memory during
+partial-manifest reconciliation (so a later ready-state save cannot flush a
+previously pruned list). "Full pane manifest" means the PaneUpdate snapshot
+contains an entry for every tab position currently known from TabUpdate —
+the strongest completeness condition exposed by zellij 0.44.3.
+
+Additive or reordering mutations SHALL remain allowed during this window.
+When a persisted baseline is already known (adopted or disk-loaded), their
+non-shrinking save SHALL proceed immediately. When no baseline is known yet,
+the mutation SHALL remain in memory and its disk flush SHALL be queued until
+the disk load resolves and reconciles — fail-closed deferral avoids replacing
+an unknown fuller disk file with a partial candidate. Once both readiness
+conditions have been observed, normal reconciliation pruning and its saves
+apply unchanged. Guard/readiness decisions SHALL be pure logic in
+`harpoon-core` with native tests (Constitution I).
 
 #### Scenario: early partial manifest cannot shrink the disk file
 - **GIVEN** a freshly spawned instance whose disk load has not yet resolved
@@ -21,11 +31,22 @@ guard decision SHALL be pure logic in `harpoon-core` with native tests
 - **THEN** the shrinking save SHALL be suppressed and the on-disk bookmark
   file SHALL retain all previously persisted bookmarks
 
-#### Scenario: additive save during the bootstrap window persists
+#### Scenario: additive mutation with known baseline persists immediately
 - **GIVEN** the same early window (disk load or full manifest not yet
-  observed)
+  observed) AND a persisted baseline is known from bootstrap or disk
 - **WHEN** the user adds a bookmark and a save is attempted
-- **THEN** the save SHALL proceed (the guard blocks only shrinking saves)
+- **THEN** the non-shrinking save SHALL proceed (the guard blocks only
+  shrinking saves)
+
+#### Scenario: additive mutation before baseline is queued safely
+- **GIVEN** the disk load is unresolved, no bootstrap was adopted, and the
+  persisted baseline is unknown
+- **WHEN** the user adds a bookmark
+- **THEN** the in-memory mutation SHALL proceed immediately, its full-file
+  disk write SHALL be deferred, and the mutation SHALL be preserved through
+  late disk reconciliation
+- **AND** once the disk baseline resolves the merged non-shrinking state
+  SHALL be flushed through the normal save path
 
 #### Scenario: pruning resumes after both conditions observed
 - **GIVEN** the instance has observed a resolved disk load AND a full pane

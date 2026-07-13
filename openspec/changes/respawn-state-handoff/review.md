@@ -57,6 +57,43 @@ immutable from here. -->
   proposal.md ## Open Questions; a design.md would restate frozen content
   and add a fidelity dispatch with no new decision surface.
 
+## Scope Expansions
+
+### SE-1 — aggregate permission denial replaces hand-off-only denial fallback
+
+- **Trigger:** blind code-review round 1 P1 (both reviewers) required a
+  permission-denied regression and a spawn-without-hand-off fallback.
+- **Evidence:** zellij 0.44.3 `request_permission` returns only
+  `Event::PermissionRequestResult(status)` — the event carries no permission
+  identity — and caches/blocks ALL normal plugin events while any permission
+  request is unresolved (`zellij-server/src/plugins/zellij_exports.rs:892`,
+  `plugins/mod.rs:767`). Runtime probe 2026-07-13: splitting baseline and
+  `MessageAndLaunchOtherPlugins` into sequential/nested requests delivered
+  only the first Granted result and left the plugin permission-modal; S2
+  toggle and Esc never reached harpoon. Two load-time requests behaved the
+  same. Therefore "OpenTerminalsOrPlugins granted while only
+  MessageAndLaunchOtherPlugins denied" is not representable through the SDK.
+- **Substitution:** request the complete capability vector atomically. On
+  aggregate grant, spawn+targeted hand-off run. On aggregate denial, issue NO
+  gated response-decoding/query/output/unblock call and use deny-safe
+  show-in-place (no panic). Payload encode/send-unavailable AFTER aggregate
+  grant still degrades spawn→no hand-off→successor independent disk load.
+  S11 drives the real interactive denial in a scratch session and asserts
+  pane/session survival + zero new panic lines.
+- **Why required:** preserves the frozen intent's safety outcome (never panic,
+  never assume unverified host capability) using the only host-observable
+  permission state; exact hand-off-only denial branch is host-unrepresentable.
+
+### SE-2 — full-manifest readiness made verifiable
+
+- **Trigger:** round-1 P1/P3 found the old non-empty-manifest proxy reopened
+  the partial-manifest prune hole.
+- **Evidence/substitution:** zellij exposes PaneUpdate snapshots but no
+  explicit completeness bit. Define "full" as manifest coverage of EVERY tab
+  position currently known from TabUpdate (pure core predicate, native test);
+  preserve bookmarks in memory as well as suppress disk writes until BOTH
+  that coverage and independent disk resolution hold.
+
 ## Execution Notes
 
 <!-- Transient observations appended during apply. One-line entries when a
@@ -73,10 +110,27 @@ non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -
   matching (payload carries sender-handled CLI pipe id, one-shot ignore,
   client still released). Keybind-sourced pipes carry no id and are never
   suppressed (re-delivery is a CLI-pipe blocking-mechanism behavior).
-- 2026-07-13 — Assumption: adopted bootstrap counts as the disk baseline
-  for the destructive-save guard (sender's disk verified current at send
-  time); disk reconcile after early user mutation = MergeMissing (disk
-  entries absent from memory append with index=None), never clobber.
+- 2026-07-13 — Assumption clarified after round-1: adopted bootstrap may be
+  used as a comparison baseline for proving a save additive/reorder-only,
+  but NEVER substitutes for independent `disk_resolved` in the shrinking-
+  save readiness predicate. Adopted late disk result reconciles by replacing
+  the comparison baseline only; memory remains verbatim (no stale-row merge).
+  No-bootstrap disk reconcile after early user mutation = MergeMissing (disk
+  entries absent from memory append with index=None), never replace memory.
+- 2026-07-13 — Apply validation at worktree `d731bf6`: core native tests
+  259/259 green; wasm32-wasip1 release build clean; strict OpenSpec valid;
+  shell syntax clean; expanded tmux-hosted scratch regression 19/19 green
+  (S8 immediate target hand-off, S9 same-uuid duplicate tolerance + CLI
+  release, S10 persisted-list non-shrink across respawns).
+- 2026-07-13 — Blind code-review round 1 at worktree `d731bf6`: both fail;
+  max counts P0=0/P1=7/P2=3/P3=4; designated doneness judge = not. Fix commit
+  `5893b0e` addresses all P1s: suppress interim rendering + immediate cached
+  restore, independent exactly-once disk initiation + baseline reconcile,
+  independently-resolved-disk/full-manifest prune readiness + in-memory
+  preservation, pre-grant CLI queue, aggregate permission denial safety,
+  spawn-id-unavailable close, and deterministic/interactive evidence.
+  Post-fix regression 23/23: adds S0 render/full-manifest instrumentation and
+  S11 real permission prompt denial (pane/session alive, no new panic).
 
 ## Fidelity Round Ledger
 

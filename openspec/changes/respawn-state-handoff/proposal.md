@@ -21,9 +21,12 @@ spike-probed (`/tmp/spike-handoff/`, 2026-07-13).
   existing disk load remains as cold-boot fallback and reconciliation input.
   Adoption handler is deny-safe (pipe arrives pre-grant — probe-proven) and
   pure-state.
-- **New permission:** `MessageAndLaunchOtherPlugins` added to
-  `request_permission`, script permission seeds, and README (runtime regrant
-  documented). Denied/absent grant degrades to today's disk-load path.
+- **New permission:** `MessageAndLaunchOtherPlugins` added to the aggregate
+  `request_permission` vector, script permission seeds, and README (runtime
+  regrant documented). Payload encode/send unavailability after grant
+  degrades to successor disk load; aggregate denial (zellij exposes no
+  per-permission result) stays deny-safe and shows in place (Scope Expansion
+  SE-1; no gated host call, no panic).
 - **Duplicate-delivery tolerance:** a stale invocation pipe re-delivered to
   the successor (~380ms after respawn — probe-proven) MUST NOT hide the
   just-shown menu.
@@ -65,9 +68,11 @@ spike-probed (`/tmp/spike-handoff/`, 2026-07-13).
 - **Runtime (operational, outside gate):** deploy wasm; answer the new
   `MessageAndLaunchOtherPlugins` prompt in a visible pane; verify a
   cross-tab invoke shows the full list instantly.
-- **Failure envelope:** spawn returns `None`/non-plugin id, bootstrap lost,
-  permission denied — all degrade to the existing disk-load path; never
-  worse than today.
+- **Failure envelope:** spawn returns `None`/non-plugin id or bootstrap
+  encode/send is unavailable after grant — skip hand-off and successor uses
+  disk load; aggregate permission denial cannot spawn and therefore uses the
+  deny-safe show-in-place fallback (SE-1). No failure path calls an
+  unverified response-decoding host.
 
 ## Open Questions
 
