@@ -821,6 +821,12 @@ impl State {
                 // are valid — same zellij session as the sender:
                 // reorder.restore-identity-tracks-live-panes).
                 self.dispatch_state.panes.clear();
+                // Bootstrap payload is the sender's last live persisted
+                // shape: safe baseline for classifying additive/reorder vs
+                // shrink during the hand-off window. It NEVER substitutes
+                // for disk_resolved in shrinking_save_allowed; the actual
+                // disk result later replaces this comparison baseline.
+                self.persistence.set_baseline(payload.bookmarks.clone());
                 if self.session_name.is_none() {
                     self.session_name = payload.session_name;
                 }
