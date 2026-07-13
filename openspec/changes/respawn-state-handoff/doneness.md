@@ -5,23 +5,23 @@
 **Judge:** openai-codex/gpt-5.6-sol (review_mode: blind-single-judge)
 **review_mode:** blind-single-judge
 **Frozen-Intent SHA:** ccc4c89a0cf8858521805f4a43253b2d51473b6fa9046997246039b86ad85da3
-**Attested HEAD:** d731bf6e4fcfabdee9bac01511afd01ff5a49c3a
+**Attested HEAD:** 5e6692c145021304959a02b6fb75a4efebc1ee2b
 **Diff Base SHA:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4
-**Reviewed Range:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4..d731bf6e4fcfabdee9bac01511afd01ff5a49c3a
+**Reviewed Range:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4..5e6692c145021304959a02b6fb75a4efebc1ee2b
 
 ## Verdict rationale
 
-The diff does not yet meet the frozen first-render, disk-reconciliation,
-prune-readiness, additive-save, permission-degrade, or spawn-id failure
-outcomes. Native tests pass, but implementation and committed regression
-evidence do not entail all delta scenarios.
+The round-2 diff still permits empty/partial first render, stale pane-id
+collisions in merge/shrink detection and restart restore, delayed v1 additive
+save, shim-owned guard policy, and unforced race evidence. These are frozen
+outcomes and delta acceptance criteria, not gold-plating.
 
 ## Gaps
 
-- Successor first render is empty or resolving rather than a live full target list
-- Bootstrap can suppress the required disk load and late reconciliation
-- Prune readiness does not require resolved disk load plus full manifest
-- Additive saves are suppressed when the persisted baseline is unknown
-- Denied or ungranted host capabilities are not safely degraded or gated
-- Missing spawn id keeps the predecessor instead of using successor disk fallback
-- Required instant-render, early-prune-window, and permission-denied regressions are absent
+- First render is not gated on completed cached-manifest restoration
+- Stale pane-id collisions can bypass destructive-save protection
+- Cross-restart restore can bind reused pane ids to wrong panes
+- Mixed ID and no-ID baselines can reconcile into duplicate targets
+- V1 disk baselines do not permit immediate additive saves
+- Destructive-save policy remains partly in the wasm shim
+- Regression scenarios do not force first-render or early-save race windows

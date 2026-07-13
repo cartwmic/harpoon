@@ -5,8 +5,8 @@
 **review_mode:** adversarial-multimodel
 **reviewer-provenance:** openai-codex/gpt-5.6-sol + claude-bridge/claude-fable-5 (blind via pi-subagents delegate)
 **Diff Base SHA:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4
-**Reviewed Range:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4..d731bf6e4fcfabdee9bac01511afd01ff5a49c3a
-**Attested HEAD:** d731bf6e4fcfabdee9bac01511afd01ff5a49c3a
+**Reviewed Range:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4..5e6692c145021304959a02b6fb75a4efebc1ee2b
+**Attested HEAD:** 5e6692c145021304959a02b6fb75a4efebc1ee2b
 **Baseline:** intent.md + proposal + specs + plan + tasks status + constitution/domain (design absent by plain-M decision gate)
 **Generated:** 2026-07-13
 
@@ -21,13 +21,16 @@ open.
 | Round | Mode | P0 | P1 | P2 | P3 | Reviewer verdicts | Reviewed HEAD |
 |---|---|---|---|---|---|---|---|
 | 1 | blind | 0 | 7 | 3 | 4 | gpt-5.6-sol:fail claude-fable-5:fail | d731bf6e4fcfabdee9bac01511afd01ff5a49c3a |
+| 2 | blind | 2 | 5 | 3 | 3 | gpt-5.6-sol:fail claude-fable-5:fail | 5e6692c145021304959a02b6fb75a4efebc1ee2b |
 
 ## Findings
 
 <!-- Counts above are max-across-reviewers per severity, with no
 cross-reviewer finding matching. Full sole-source findings files:
 /tmp/rsh-r1-sol.md and /tmp/rsh-r1-fable.md. Rows retain source identity;
-similar findings are not merged for counting. -->
+similar findings are not merged for counting. Round-2 sole-source findings:
+/tmp/rsh-r2-sol.md and /tmp/rsh-r2-fable-retry.md. Initial fable dispatch
+produced no findings file and was INVALID; same blind round was re-dispatched. -->
 
 | # | Finding | Severity | Status |
 |---|---|---|---|
@@ -46,10 +49,28 @@ similar findings are not merged for counting. -->
 | fable-6 | MergeMissing can resurrect a user-deleted disk bookmark in the tiny no-bootstrap pre-load window. | P3 | open |
 | fable-7 | `manifest_seen` is a non-empty proxy, not a defined full-manifest condition. | P3 | open |
 | fable-8 | Bootstrap-before-stale-toggle ordering relies on probe ordering; theoretical reverse order remains. | P3 | open |
+| r2-sol-1 | Render readiness is not tied to cached-manifest restoration; bootstrap can still permit empty/partial first render. | P1 | open |
+| r2-sol-2 | ID-only identity collisions after restart can bypass merge/shrink detection and overwrite a distinct disk bookmark. | P0 | open |
+| r2-sol-3 | Cross-restart reused pane IDs can resolve a bookmark to the wrong pane before title fallback. | P1 | open |
+| r2-sol-4 | Mixed id/no-id identities can duplicate the same bookmark during unknown-baseline reconciliation. | P1 | open |
+| r2-sol-5 | Successful v1 load leaves no baseline, delaying additive save despite known disk state. | P1 | open |
+| r2-sol-6 | Shim decides unknown-baseline + final destructive-save branch instead of core. | P0 | open |
+| r2-sol-7 | S8/S10 timing evidence does not force actual first-render and partial-manifest early-save race windows. | P1 | open |
+| r2-fable-1 | Aggregate permission denial leaves render permanently suppressed/blank instead of status-quo empty UI. | P1 | open |
+| r2-fable-2 | Frozen-store bookmark lost during guard window remains a permanent ghost after readiness; pruning never resumes. | P1 | open |
+| r2-fable-3 | Any local/broadcast `bootstrap_store` source can replace memory and seed baseline. | P2 | open |
+| r2-fable-4 | Spawn `None` closes only instance if spawn actually failed; status-quo predecessor survived. | P2 | open |
+| r2-fable-5 | Bootstrap before first PaneUpdate can still render an empty target list. | P2 | open |
+| r2-fable-6 | Post-grant bootstrap session name does not itself trigger exactly-once disk initiation. | P3 | open |
+| r2-fable-7 | Aggregate denial leaves unbounded queued CLI clients blocked. | P3 | open |
+| r2-fable-8 | Identity refresh clones pane-id map every update round. | P3 | open |
 
 ## Applied fixes
 
-- None — round 1 findings sealed; fixes land after this verdict-only commit.
+- Round 1: candidate `5e6692c` added render gating/cached restore, independent
+  disk reconciliation, full-manifest/in-memory prune protection, unknown-
+  baseline queueing, aggregate permission safety, CLI pre-grant queue, spawn-id
+  fallback, and 23-scenario evidence. Round 2 found remaining gaps above.
 
 ## Residual risks
 
@@ -58,6 +79,5 @@ similar findings are not merged for counting. -->
 
 ## Verdict rationale
 
-FAIL. Both valid blind reviewers found open P1 baseline/correctness gaps.
-Round is converging once change-scoped implementation/spec/evidence fixes land;
-then full-diff blind round 2 is required.
+FAIL. Both valid blind round-2 reviewers found open P0/P1 baseline and
+correctness gaps. Fixes must land before full-diff blind round 3.
