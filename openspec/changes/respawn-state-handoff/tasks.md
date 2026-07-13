@@ -1,6 +1,6 @@
 ## 1. Evidence preservation
 
-- [ ] 1.1 Preserve the 2026-07-13 spike-handoff probe evidence (spike plugin
+- [x] 1.1 Preserve the 2026-07-13 spike-handoff probe evidence (spike plugin
   `src/main.rs`, `probe.sh`, and the SPIKEHO log excerpt proving spawn-id
   return, 119ms targeted bootstrap delivery, pre-grant arrival, and ~380ms
   stale-pipe re-delivery) under
