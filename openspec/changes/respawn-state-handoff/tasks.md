@@ -95,7 +95,7 @@
 
 ## 5. Validation
 
-- [ ] 5.1 Full validation: `cargo test -p harpoon-core` green; wasm build
+- [x] 5.1 Full validation: `cargo test -p harpoon-core` green; wasm build
   (`wasm32-wasip1`) clean; `openspec validate respawn-state-handoff
   --strict` passes; full regression script run recorded in review.md
   Execution Notes.
