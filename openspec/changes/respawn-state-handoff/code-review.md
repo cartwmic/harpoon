@@ -5,8 +5,8 @@
 **review_mode:** adversarial-multimodel
 **reviewer-provenance:** openai-codex/gpt-5.6-sol + claude-bridge/claude-fable-5 (blind via pi-subagents delegate)
 **Diff Base SHA:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4
-**Reviewed Range:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4..81639347def2c1121d2e4a3791a8db8534cf3e73
-**Attested HEAD:** 81639347def2c1121d2e4a3791a8db8534cf3e73
+**Reviewed Range:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4..db48288dd0cc8080e9a01e57a9ca9f092accf01d
+**Attested HEAD:** db48288dd0cc8080e9a01e57a9ca9f092accf01d
 **Baseline:** intent.md + proposal + specs + plan + tasks status + constitution/domain (design absent by plain-M decision gate)
 **Generated:** 2026-07-13
 
@@ -24,6 +24,7 @@ open.
 | 2 | blind | 2 | 5 | 3 | 3 | gpt-5.6-sol:fail claude-fable-5:fail | 5e6692c145021304959a02b6fb75a4efebc1ee2b |
 | 3 | blind | 1 | 4 | 0 | 1 | gpt-5.6-sol:fail claude-opus-4-8:fail (Fable capacity replacement) | 8fc491122b9f1d568ff7feb681417b2ac70d248f |
 | 4 | blind | 0 | 3 | 1 | 1 | gpt-5.6-sol:fail claude-opus-4-8:pass (Fable capacity replacement) | 81639347def2c1121d2e4a3791a8db8534cf3e73 |
+| 5 | blind | 0 | 3 | 0 | 2 | gpt-5.6-sol:fail claude-opus-4-8:pass (Fable capacity replacement) | db48288dd0cc8080e9a01e57a9ca9f092accf01d |
 
 ## Findings
 
@@ -77,6 +78,11 @@ produced no findings file and was INVALID; same blind round was re-dispatched. -
 | r4-sol-3 | Deterministic model does not exercise shipped wiring; S8/S10 remain eventual-only. | P1 | open |
 | r4-opus-1 | Corrupt gapped/duplicate saved indexes can make render equality unsatisfiable. | P2 | open |
 | r4-opus-2 | README hard-wrap nit. | P3 | open |
+| r5-sol-1 | Fallback pass can steal a different bookmark's trusted visible id before its exact claim across staggered rounds. | P1 | open |
+| r5-sol-2 | Reconcile parse loses v1 format provenance and clears mandatory migration marker. | P1 | open |
+| r5-sol-3 | S8 observation starts after `press` helper's two-second delay, not at invocation. | P1 | open |
+| r5-opus-1 | Reconcile v1 migration provenance is not preserved. | P3 | open |
+| r5-opus-2 | S10 5ms monitor has sub-poll sensitivity, mitigated by deterministic guard tests. | P3 | open |
 
 ## Applied fixes
 
@@ -90,6 +96,9 @@ produced no findings file and was INVALID; same blind round was re-dispatched. -
 - Round 3: candidate `8163934` added multiset-safe identity, no-index row
   projection, adopted-id prune enrolment, and a composed core race model.
   Round 4 found remaining gaps above.
+- Round 4 fixes at `db48288` seed cross-round consumed ids, preserve direct
+  v1 migration, totalize row projection, remove disk for S8, and continuously
+  monitor S10. Round 5 split on remaining findings above.
 
 ## Residual risks
 
@@ -98,7 +107,5 @@ produced no findings file and was INVALID; same blind round was re-dispatched. -
 
 ## Verdict rationale
 
-FAIL. Valid blind round-4 reviewers found open P1 correctness/evidence gaps.
-Configured Fable remained unavailable; Sol + unchanged-snapshot Claude Opus
-replacement supplied two valid blind template findings files. Fixes must land
-before full-diff blind round 5.
+FAIL. Valid blind round-5 reviewers split with open Sol P1s. Hard cap reached;
+land fixes, then run one disclosure-consensus round per convergence protocol.
