@@ -135,15 +135,23 @@ depending on the host's implicit release.
 ### Requirement: Host Call Permission Completeness
 
 THE plugin SHALL request, at load, every `PermissionType` required by a host
-call it invokes — including `ReadCliPipes`, which zellij requires for
-`unblock_cli_pipe_input` and `cli_pipe_output` — so that no host call the
-plugin depends on is silently permission-denied at runtime.
+call it invokes — including `ReadCliPipes` (required for
+`unblock_cli_pipe_input` / `cli_pipe_output`), `OpenTerminalsOrPlugins`
+(required for the respawn branch's plugin-pane spawn), and
+`MessageAndLaunchOtherPlugins` (required for the `bootstrap_store` hand-off
+send) — so that no host call the plugin depends on is silently
+permission-denied at runtime.
 
 #### Scenario: ReadCliPipes requested at load
 - **WHEN** the plugin's `load()` runs
 - **THEN** the permission request SHALL include `ReadCliPipes` alongside the
   existing `RunCommands`, `ReadApplicationState`, and
   `ChangeApplicationState` permissions
+
+#### Scenario: MessageAndLaunchOtherPlugins requested at load
+- **WHEN** the plugin's `load()` runs
+- **THEN** the permission request SHALL include
+  `MessageAndLaunchOtherPlugins` and `OpenTerminalsOrPlugins`
 
 #### Scenario: pipe host calls not denied after grant
 - **WHILE** `ReadCliPipes` has been granted
@@ -158,8 +166,11 @@ plugin depends on is silently permission-denied at runtime.
 #### Scenario: ungranted permission is not assumed
 - **IF** the host reports the permission request denied
   (`PermissionRequestResult`)
-- **THEN** the plugin SHALL NOT treat the gated pipe-release and pipe-output
-  behavior as available (grant is verified, never assumed — Constitution IV)
+- **THEN** the plugin SHALL NOT treat any gated host-call behavior
+  (pipe-release, pipe-output, plugin-pane spawn, bootstrap send) as
+  available (grant is verified, never assumed — Constitution IV)
+
+---
 
 ### Requirement: Toggle Pipe Invocation
 
@@ -292,4 +303,111 @@ unverified host state.
 - **THEN** the menu SHALL end on tab B with the view on tab B (no verified
   parked record exists → respawn branch), never a warm in-place show that
   yanks the view to tab A
+
+### Requirement: Respawn State Hand-Off
+
+THE outgoing instance SHALL hand its in-memory bookmark state directly to
+the successor WHEN the `toggle` pipe's respawn branch opens a fresh
+instance on the invoking tab, instead of leaving the successor to race the
+disk load: it SHALL capture the successor's pane id from the spawn host call's
+return value, send a `bootstrap_store` pipe message routed by destination
+plugin id (never by url+configuration matching) whose payload carries the
+serialized bookmark store (persistence v2 envelope) and the session name,
+and only then close itself. The successor SHALL adopt the payload as its
+in-memory store immediately on receipt. Adoption SHALL be deny-safe pure
+state mutation only — no response-decoding host calls — because the
+bootstrap message can arrive before the successor's permission grant.
+
+Adoption-vs-disk precedence SHALL be pure decision logic in `harpoon-core`
+(Constitution I): an adopted bootstrap payload wins while the successor's
+disk load is unresolved; a disk load result arriving after adoption SHALL
+reconcile and SHALL NOT clobber newer in-memory mutations. The disk load
+remains the cold-boot fallback whenever no bootstrap payload arrives.
+
+#### Scenario: cross-tab respawn presents persisted targets immediately
+- **GIVEN** the plugin is hidden and parked on tab A with a non-empty
+  bookmark store
+- **WHEN** a `toggle` pipe message arrives while the client's active tab is
+  B (B ≠ A) and the respawn branch runs
+- **THEN** the successor's menu SHALL present every persisted jump-target
+  row on its first actual render (live pane where resolved, saved
+  `tab_name | pane_title` placeholder where the host manifest is not ready,
+  including persisted post-freeze bookmarks with `index=None`)
+- **AND** rendering SHALL remain suppressed rather than expose an empty or
+  partial projection (no invoke-again-to-recover)
+
+#### Scenario: bootstrap arriving pre-grant is adopted safely
+- **GIVEN** the successor has loaded but its permission grant has not yet
+  been confirmed (`PermissionRequestResult` not received)
+- **WHEN** the `bootstrap_store` pipe message arrives
+- **THEN** the successor SHALL adopt the payload via pure state mutation
+  only, making no response-decoding host call in the adoption path
+- **AND** the plugin SHALL NOT panic
+
+#### Scenario: late disk load reconciles without clobbering newer mutations
+- **GIVEN** the successor adopted a bootstrap payload and the user then
+  mutated the store (e.g. added a bookmark)
+- **WHEN** the successor's independently initiated disk load result arrives
+  afterwards
+- **THEN** the in-memory store SHALL retain the adopted state and user's
+  newer mutation verbatim
+- **AND** the disk result SHALL be consumed as the persistence baseline for
+  destructive-save comparison (reconciliation input), never replace or
+  append stale rows into newer in-memory state
+
+#### Scenario: spawn id unavailable degrades to disk load
+- **IF** the spawn host call returns no pane id (or a non-plugin id)
+- **THEN** the outgoing instance SHALL skip the bootstrap send and close
+  itself as today
+- **AND** the successor SHALL populate its store via the existing disk-load
+  path (behavior never worse than the status quo)
+
+#### Scenario: unavailable hand-off degrades safely
+- **IF** payload encoding fails after a successor pane id was returned
+- **THEN** the outgoing instance SHALL skip the bootstrap send, close, and
+  the successor SHALL fall back to its independently initiated disk load
+
+#### Scenario: aggregate permission denial is deny-safe
+- **IF** zellij denies the aggregate permission request (which includes both
+  `OpenTerminalsOrPlugins` and `MessageAndLaunchOtherPlugins`)
+- **THEN** the plugin SHALL invoke no gated response-decoding host call (no
+  panic) and SHALL use the deny-safe show-in-place fallback
+- **AND** because aggregate denial includes `ChangeApplicationState`, zellij
+  may suppress the denied plugin after prompt teardown; harpoon SHALL remain
+  inert/alive while the user's terminal remains visible (it SHALL NOT attempt
+  an ungranted post-denial show)
+- **AND** queued CLI messages SHALL remain unexecuted rather than assume the
+  denied query/output/unblock capabilities
+
+### Requirement: Duplicate Toggle Delivery Tolerance
+
+THE successor SHALL NOT hide its just-shown menu in response to a stale
+toggle: IF a queued or stale `toggle` pipe message is re-delivered to a
+freshly respawned successor before the user has interacted with the
+just-shown menu, THEN the successor SHALL ignore it while still releasing
+the blocked CLI client (probe evidence 2026-07-13: the in-flight CLI
+invocation pipe that triggered the respawn is re-delivered to the successor
+~380ms after load, carrying the SAME pipe id). The ignore-vs-honor decision
+SHALL be pure decision logic in `harpoon-core`, keyed on deterministic pipe
+identity — the hand-off payload carries the pipe id the sender already
+handled and the successor ignores exactly one toggle from that source —
+never on wall-clock debounce (and never on a shown/readiness proxy: the
+re-delivery arrives AFTER the menu is shown, so timing/readiness conditions
+cannot distinguish it from a genuine re-invoke).
+
+#### Scenario: re-delivered invocation pipe does not hide the menu
+- **GIVEN** the respawn branch just spawned a successor and the successor
+  has shown its menu
+- **WHEN** the original in-flight `toggle` pipe message is re-delivered to
+  the successor immediately after load (same CLI pipe id the outgoing
+  instance already handled)
+- **THEN** the menu SHALL remain shown (the stale toggle is ignored)
+- **AND** the blocked CLI pipe client SHALL still be released
+
+#### Scenario: genuine user re-invoke still hides
+- **GIVEN** the successor's menu is shown
+- **WHEN** the user presses the keybind again (a new `toggle` pipe message —
+  keybind-sourced or a NEW CLI pipe id, never the sender-handled id)
+- **THEN** the visible-and-focused hide branch SHALL run as specified by
+  Toggle Pipe Invocation
 
