@@ -3,7 +3,7 @@
 **Doneness:** satisfied
 
 **Judge:** openai-codex/gpt-5.6-sol + claude-bridge/claude-opus-4-8
-**review_mode:** disclosure-consensus
+**review_mode:** adversarial-multimodel
 **Frozen-Intent SHA:** ccc4c89a0cf8858521805f4a43253b2d51473b6fa9046997246039b86ad85da3
 **Attested HEAD:** 155bb7a6201d60d64e99eaad66609a8f2581c010
 **Diff Base SHA:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4
