@@ -118,10 +118,16 @@ discriminator that survives reload, which the zellij API doesn't expose.)
 
 When the persistence file has bookmarks that haven't yet appeared as live
 panes (typically a sub-second window after session reopen), those slots
-render as `<slot>  ?  (resolving)` rather than collapsing the gap. Pressing
-the slot key while it's a placeholder is a no-op — guarantees pressing `2`
-always jumps to the pane the user pinned at slot 2 OR no-ops, never to the
-wrong pane.
+render as `<slot>  <saved-tab> | <saved-title>  (resolving)` rather than
+collapsing or hiding the target. Pressing the slot key while it's a
+placeholder is a no-op — guarantees pressing `2` always jumps to the pane
+the user pinned at slot 2 OR no-ops, never to the wrong pane.
+
+Pane ids are trusted only for live state and targeted predecessor→successor
+hand-off inside one zellij session generation. Ids parsed from disk are
+cleared before restore because zellij can reuse them after restart; cold
+restore uses the continuously refreshed exact `(tab_name, pane_title)`
+fallback instead.
 
 The first time the user mutates the list (`a`/`A`/`d`/`K`/`J`), unresolved
 saved-position bookmarks are converted to append-on-resolve and the
@@ -275,10 +281,16 @@ when invoking from root.)
 The plugin requests `RunCommands`, `ReadApplicationState`,
 `ChangeApplicationState`, `ReadCliPipes` (gates `unblock_cli_pipe_input` /
 `cli_pipe_output` — without it every CLI pipe client hangs as a zombie and
-`slot_for_pane` produces no output), and `OpenTerminalsOrPlugins` (gates
-`open_plugin_pane_floating` — the toggle's cross-tab respawn; a denied
-response-decoding host call PANICS the plugin, so a missing grant kills the
-instance on the first cross-tab invoke).
+`slot_for_pane` produces no output), `OpenTerminalsOrPlugins` (gates
+`open_plugin_pane_floating` — the toggle's cross-tab respawn), and
+`MessageAndLaunchOtherPlugins` (gates the destination-id `bootstrap_store`
+message that hands the live bookmark list to a respawned successor). Zellij
+0.44.3 reports one aggregate grant/denial for this whole vector (no
+per-permission identity): on aggregate denial harpoon makes no gated
+response-decoding/query/output call and stays deny-safe (terminal visible,
+plugin suppressed/alive, no panic). If aggregate grant succeeds but hand-off
+payload creation is
+unavailable, the spawned successor uses its independent disk-load fallback.
 
 After deploying a wasm whose permission set grew (e.g. the `ReadCliPipes`
 addition), the grant must be renewed at runtime:
@@ -288,7 +300,8 @@ addition), the grant must be renewed at runtime:
    prompt (`y`). A hidden/background instance never shows the prompt, so
    **skipping the visible-pane regrant leaves the new permission inert**.
 3. Verify the grant landed: the zellij cache `permissions.kdl` (path from
-   `zellij setup --check`, `[CACHE DIR]`) lists `ReadCliPipes` under this
+   `zellij setup --check`, `[CACHE DIR]`) lists `ReadCliPipes`,
+   `OpenTerminalsOrPlugins`, and `MessageAndLaunchOtherPlugins` under this
    plugin's path.
 4. Restart any long-lived zellij server that predates the grant (e.g. a
    `workspace` session) to clear accumulated wedged pipe clients:
@@ -310,10 +323,15 @@ config + deploy change (operational — outside this repo's test gate):
    instance identity (and any ntfy `--plugin-configuration`) still matches.
 3. Reload the config (zellij picks up config.kdl changes live) or restart
    the server session.
-4. Answer the `OpenTerminalsOrPlugins` permission prompt in a VISIBLE
-   plugin pane (new grant — same regrant discipline as `ReadCliPipes`
-   above; an unanswered prompt leaves toggles inert and a denied grant
-   panics the instance on cross-tab invokes).
+4. Answer the `OpenTerminalsOrPlugins` AND
+   `MessageAndLaunchOtherPlugins` permission prompt in a VISIBLE plugin pane
+   (new grants — same regrant discipline as `ReadCliPipes` above; an
+   unanswered prompt leaves toggles inert. Aggregate denial includes
+   `ChangeApplicationState`: zellij returns focus to the terminal, keeps the
+   plugin suppressed/alive, and ignores post-denial show attempts; harpoon
+   therefore makes no ungranted host call. If grant succeeds but bootstrap
+   payload creation is unavailable, the spawned successor independently
+   disk-loads).
 5. Verify a round-trip: `Ctrl y` shows the menu floating on the current
    tab → `Esc` hides → switch tab → `Ctrl y` again shows it on the NEW tab
    (menu and view together — the wrong-tab jump is gone; cross-tab invokes

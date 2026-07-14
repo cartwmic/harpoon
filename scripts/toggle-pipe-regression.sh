@@ -85,6 +85,32 @@ say "building wasm..."
 cargo build --release -p harpoon --target wasm32-wasip1 \
   --manifest-path "$REPO_ROOT/Cargo.toml" >/dev/null
 
+# Deterministic instrumentation for host states the zellij public API cannot
+# force from a scenario client:
+# - first ACTUAL render is suppressed until bootstrap/disk readiness;
+# - a manifest is not "full" until it covers every known tab position.
+# These are core decisions, not shim guesses (Constitution I).
+CORE_TEST_RC=0
+cargo test -p harpoon-core --manifest-path "$REPO_ROOT/Cargo.toml" \
+  first_render_waits_for_full_store_projection_or_terminal_denial >/dev/null 2>&1 || CORE_TEST_RC=$?
+assert "S0 first-render full-store projection instrumentation" "$CORE_TEST_RC"
+CORE_TEST_RC=0
+cargo test -p harpoon-core --manifest-path "$REPO_ROOT/Cargo.toml" \
+  full_manifest_requires_coverage_of_every_known_tab >/dev/null 2>&1 || CORE_TEST_RC=$?
+assert "S0 partial-manifest readiness instrumentation" "$CORE_TEST_RC"
+CORE_TEST_RC=0
+cargo test -p harpoon-core --manifest-path "$REPO_ROOT/Cargo.toml" \
+  deferred_prune_resumes_once_ready_and_compacts_slots >/dev/null 2>&1 || CORE_TEST_RC=$?
+assert "S0 deferred prune resumes after readiness instrumentation" "$CORE_TEST_RC"
+CORE_TEST_RC=0
+cargo test -p harpoon-core --manifest-path "$REPO_ROOT/Cargo.toml" \
+  disk_ids_are_cleared_before_cross_restart_identity_use >/dev/null 2>&1 || CORE_TEST_RC=$?
+assert "S0 stale pane-id collision instrumentation" "$CORE_TEST_RC"
+CORE_TEST_RC=0
+cargo test -p harpoon-core --manifest-path "$REPO_ROOT/Cargo.toml" \
+  deterministic_respawn_race_sequence_projects_all_rows_and_guards_disk >/dev/null 2>&1 || CORE_TEST_RC=$?
+assert "S0 deterministic bootstrap→partial-manifest→ready-prune sequence" "$CORE_TEST_RC"
+
 PERM_FILE="$(zellij setup --check 2>/dev/null | sed -n 's/^\[CACHE DIR\]: //p')/permissions.kdl"
 if [ -f "$PERM_FILE" ]; then
   PERM_BAK="$(mktemp)"; cp "$PERM_FILE" "$PERM_BAK"
@@ -95,7 +121,7 @@ fi
 # required permission makes zellij show an interactive prompt the scripted
 # session can never answer.
 awk -v wasm="$WASM" 'BEGIN{skip=0} $0 == "\"" wasm "\" {" {skip=1; next} skip && /^\}/ {skip=0; next} !skip {print}' "$PERM_FILE" > "$PERM_FILE.tmp" && mv "$PERM_FILE.tmp" "$PERM_FILE"
-printf '"%s" {\n    ChangeApplicationState\n    RunCommands\n    ReadApplicationState\n    ReadCliPipes\n    OpenTerminalsOrPlugins\n}\n' "$WASM" >> "$PERM_FILE"
+printf '"%s" {\n    ChangeApplicationState\n    RunCommands\n    ReadApplicationState\n    ReadCliPipes\n    OpenTerminalsOrPlugins\n    MessageAndLaunchOtherPlugins\n}\n' "$WASM" >> "$PERM_FILE"
 
 # ── production-shaped keybind: MessagePlugin toggle pipe on F6 ─────────────
 # BSD mktemp requires trailing Xs (a .kdl suffix template silently creates a
@@ -233,6 +259,136 @@ tmux send-keys -t "$HOST2" F6; sleep 4
 L2="$(za2 dump-layout 2>/dev/null || true)"
 f2="$(focused_tab_of "$L2")"; h2="$(harpoon_tab_of "$L2")"
 assert "S7 toggle after cold jump_pane lands menu+view on J1 (focus=$f2 harpoon=${h2:-hidden})" "$([ "$f2" = J1 ] && [ "$h2" = J1 ]; echo $?)"
+
+# ── S8: cross-tab respawn presents persisted targets (state hand-off) ────
+# AC pane-pipe-api.respawn-state-hand-off: bookmark a pane on T3, then
+# invoke cross-tab from T1 WITH THE DISK FILE REMOVED. The first observed
+# menu can contain BMARK1 only via targeted bootstrap (disk fallback is
+# empty), making this distinguish hand-off from eventual disk recovery.
+za go-to-tab-name T3; sleep 1
+za rename-pane BMARK1; sleep 1
+press F6
+expect_state "S8-pre menu shown on T3 for bookmarking" T3 T3
+tmux send-keys -t "$HOST" a; sleep 2   # add focused pane (BMARK1) → Effect::Save
+DATA_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/zellij-harpoon/$SES.json"
+grep -q "BMARK1" "$DATA_FILE" 2>/dev/null || { say "FATAL S8 source bookmark did not persist"; exit 1; }
+press Escape                            # close → parked on T3
+expect_state "S8-mid hidden after bookmark add" T3 ""
+rm -f "$DATA_FILE"                     # force disk fallback to empty
+za go-to-tab-name T1; sleep 1
+# Do NOT use press(): it sleeps 2s after send and would miss the first frame.
+tmux send-keys -t "$HOST" F6
+FIRST_MENU_RC=1
+SCREEN=""
+for try in $(seq 1 150); do
+  SCREEN="$(scr)"
+  if echo "$SCREEN" | grep -q "===="; then
+    echo "$SCREEN" | grep -q "BMARK1" && FIRST_MENU_RC=0
+    break
+  fi
+  sleep 0.02
+done
+L="$(za dump-layout 2>/dev/null || true)"
+f="$(focused_tab_of "$L")"; h="$(harpoon_tab_of "$L")"
+assert "S8 first observed cross-tab menu gets BMARK1 from hand-off with disk absent (focus=$f harpoon=${h:-hidden})" \
+  "$([ "$f" = T1 ] && [ "$h" = T1 ] && [ "$FIRST_MENU_RC" -eq 0 ]; echo $?)"
+BM_DISK=1
+for try in $(seq 1 100); do
+  grep -q "BMARK1" "$DATA_FILE" 2>/dev/null && { BM_DISK=0; break; }
+  sleep 0.02
+done
+assert "S8 late disk reconcile re-persists handed-off BMARK1" "$BM_DISK"
+
+# ── S9: re-delivered CLI toggle does not hide the fresh menu ────────────
+# AC pane-pipe-api.duplicate-toggle-delivery-tolerance: a CLI-sourced
+# cross-tab toggle triggers a respawn AND zellij re-delivers the SAME
+# still-open CLI pipe to the successor (~380ms, probe 2026-07-13). Without
+# the identity guard the re-delivery hides the just-shown menu; with it the
+# menu stays AND the CLI client is still released (no hang → no exit 124).
+press F6   # hide (parked on T1)
+expect_state "S9-pre hidden (parked on T1)" T1 ""
+za go-to-tab-name T3; sleep 1
+CLI_RC=0
+timeout 20 zellij -s "$SES" pipe --name toggle --plugin "file:$WASM" -- "" || CLI_RC=$?
+assert "S9-release CLI toggle client released promptly (rc=$CLI_RC)" "$([ "$CLI_RC" -eq 0 ]; echo $?)"
+sleep 3   # cover the re-delivery window before asserting
+expect_state "S9 menu still shown on T3 after stale re-delivery window" T3 T3
+
+# ── S10: disk file never shrinks across respawn cycles (prune-guard) ─────
+# AC reorder.destructive-save-guard: every cross-tab respawn is a fresh
+# instance whose early saves (pre-baseline, pre-manifest) must never shrink
+# the persisted bookmark set.
+count_bm() { python3 -c "import json,sys;d=json.load(open('$DATA_FILE'));print(len(d['bookmarks']))" 2>/dev/null || echo 0; }
+BM_BEFORE="$(count_bm)"
+SHRINK_MARKER="$(mktemp)"; SHRINK_STOP="$(mktemp)"; rm -f "$SHRINK_STOP"
+python3 - "$DATA_FILE" "$BM_BEFORE" "$SHRINK_MARKER" "$SHRINK_STOP" <<'PY' &
+import json, pathlib, sys, time
+path, baseline, marker, stop = pathlib.Path(sys.argv[1]), int(sys.argv[2]), pathlib.Path(sys.argv[3]), pathlib.Path(sys.argv[4])
+while not stop.exists():
+    try:
+        data = json.loads(path.read_text())
+        if len(data["bookmarks"]) < baseline:
+            marker.write_text(str(len(data["bookmarks"])))
+            break
+    except (OSError, ValueError, KeyError, TypeError):
+        pass  # ignore in-flight/nonexistent file; only valid JSON can prove shrink
+    time.sleep(0.005)
+PY
+MONITOR_PID=$!
+press F6   # hide (parked on T3)
+za go-to-tab-name T1; sleep 1
+press F6; sleep 2   # respawn cycle 1 → menu on T1
+press F6            # hide (parked on T1)
+za go-to-tab-name T3; sleep 1
+press F6; sleep 2   # respawn cycle 2 → menu on T3
+touch "$SHRINK_STOP"; wait "$MONITOR_PID" || true
+BM_AFTER="$(count_bm)"
+SHRINK_RC=0; [ -s "$SHRINK_MARKER" ] && SHRINK_RC=1
+assert "S10 continuous monitor observes no valid shrinking disk state (before=$BM_BEFORE after=$BM_AFTER)" \
+  "$([ "$SHRINK_RC" -eq 0 ] && [ "$BM_AFTER" -ge "$BM_BEFORE" ] && [ "$BM_BEFORE" -ge 1 ]; echo $?)"
+rm -f "$SHRINK_MARKER" "$SHRINK_STOP"
+
+# ── S11: aggregate permission denial is deny-safe (scope expansion #1) ──
+# Zellij 0.44.3 returns ONE PermissionRequestResult for the whole vector and
+# blocks plugin events while the prompt is open; it cannot report "spawn
+# granted, hand-off denied" independently. Exercise the feasible degrade:
+# remove the seed, answer n in a visible scratch pane, assert session/plugin
+# survive and no new PANIC IN PLUGIN line appears. Denied aggregate leaves
+# terminal visible + plugin suppressed/alive; no gated host call runs.
+SES3="htoggled$$"
+HOST3="htoggled-host$$"
+cleanup3() {
+  tmux kill-session -t "$HOST3" 2>/dev/null || true
+  zellij kill-session "$SES3" 2>/dev/null || true
+  sleep 1
+  zellij delete-session "$SES3" --force >/dev/null 2>&1 || true
+}
+trap 'cleanup; cleanup2; cleanup3' EXIT
+# Remove exactly this wasm's seeded block so the permission UI appears.
+awk -v wasm="$WASM" 'BEGIN{skip=0} $0 == "\"" wasm "\" {" {skip=1; next} skip && /^\}/ {skip=0; next} !skip {print}' "$PERM_FILE" > "$PERM_FILE.tmp" && mv "$PERM_FILE.tmp" "$PERM_FILE"
+LOG_FILE=""
+for d in "${TMPDIR:-/tmp}" /tmp /var/folders/*/*/T; do
+  [ -f "$d/zellij-$(id -u)/zellij-log/zellij.log" ] && { LOG_FILE="$d/zellij-$(id -u)/zellij-log/zellij.log"; break; }
+done
+PANIC_BEFORE=0
+[ -n "$LOG_FILE" ] && PANIC_BEFORE="$(grep -c "PANIC IN PLUGIN" "$LOG_FILE" 2>/dev/null || true)"
+tmux new-session -d -s "$HOST3" -x 180 -y 45 "zellij --config $CFG -s $SES3"
+for try in 1 2 3 4 5 6 7 8 9 10; do
+  zellij list-sessions 2>/dev/null | grep -q "$SES3" && break
+  sleep 1
+done
+sleep 2
+tmux send-keys -t "$HOST3" Escape; sleep 1 # dismiss About Zellij tip
+# Cold invoke opens the permission UI in this visible plugin pane.
+tmux send-keys -t "$HOST3" F6; sleep 2
+tmux send-keys -t "$HOST3" n; sleep 3
+DENIED_LAYOUT="$(zellij -s "$SES3" action dump-layout 2>/dev/null || true)"
+DENIED_PANE_RC=1; echo "$DENIED_LAYOUT" | grep -q "harpoon.wasm" && DENIED_PANE_RC=0
+PANIC_AFTER="$PANIC_BEFORE"
+[ -n "$LOG_FILE" ] && PANIC_AFTER="$(grep -c "PANIC IN PLUGIN" "$LOG_FILE" 2>/dev/null || true)"
+assert "S11 aggregate permission denial leaves harpoon pane/session alive" "$DENIED_PANE_RC"
+assert "S11 aggregate permission denial adds no plugin panic (before=$PANIC_BEFORE after=$PANIC_AFTER)" \
+  "$([ "$PANIC_AFTER" -eq "$PANIC_BEFORE" ]; echo $?)"
 
 say "----"
 say "scenarios: $PASS passed, $FAIL failed"

@@ -1,0 +1,13 @@
+DEBUG  |/tmp/spike-handoff/target| 2026-07-13 05:28:32.104 [id: 4     ] SPIKEHO id=4 seq=1 load 
+DEBUG  |/tmp/spike-handoff/target| 2026-07-13 05:28:32.110 [id: 4     ] SPIKEHO id=4 seq=2 first_pane_update 
+DEBUG  |/tmp/spike-handoff/target| 2026-07-13 05:28:32.111 [id: 4     ] SPIKEHO id=4 seq=3 permission_result granted=true 
+DEBUG  |/tmp/spike-handoff/target| 2026-07-13 05:28:34.051 [id: 4     ] SPIKEHO id=4 seq=4 go_received source=Cli("eb176526-e2ba-4bd2-a60f-47e474a2e5a6") 
+DEBUG  |/tmp/spike-handoff/target| 2026-07-13 05:28:34.058 [id: 4     ] SPIKEHO id=4 seq=5 spawn_returned Some(Plugin(5)) 
+DEBUG  |/tmp/spike-handoff/target| 2026-07-13 05:28:34.058 [id: 4     ] SPIKEHO id=4 seq=6 bootstrap_sent dest=5 
+DEBUG  |/tmp/spike-handoff/target| 2026-07-13 05:28:34.058 [id: 5     ] SPIKEHO id=5 seq=1 load 
+DEBUG  |/tmp/spike-handoff/target| 2026-07-13 05:28:34.060 [id: 4     ] SPIKEHO id=4 seq=7 close_self_called 
+DEBUG  |/tmp/spike-handoff/target| 2026-07-13 05:28:34.177 [id: 5     ] SPIKEHO id=5 seq=2 first_pane_update 
+DEBUG  |/tmp/spike-handoff/target| 2026-07-13 05:28:34.177 [id: 5     ] SPIKEHO id=5 seq=3 BOOTSTRAP_RECEIVED payload=Some("store-from-4") source=Plugin(4) granted=false saw_pane_update=true 
+DEBUG  |/tmp/spike-handoff/target| 2026-07-13 05:28:34.177 [id: 5     ] SPIKEHO id=5 seq=4 permission_result granted=true 
+DEBUG  |/tmp/spike-handoff/target| 2026-07-13 05:28:34.435 [id: 5     ] SPIKEHO id=5 seq=5 go_received source=Cli("eb176526-e2ba-4bd2-a60f-47e474a2e5a6") 
+DEBUG  |/tmp/spike-handoff/target| 2026-07-13 05:28:34.435 [id: 5     ] SPIKEHO id=5 seq=6 go_missing_payload 

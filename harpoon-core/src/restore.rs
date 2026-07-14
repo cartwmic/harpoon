@@ -76,55 +76,73 @@ pub fn resolve_restore_round(
     }
 
     // ── Step 2: walk bookmarks, claim visible panes ──────────────────────────
-    let mut consumed_visible_ids: HashSet<u32> = HashSet::new();
+    // Claims persist across restore rounds in pane_id_to_bookmark_idx. Seed
+    // this round from those claims so a second duplicate fallback bookmark
+    // cannot take the same live pane on a later staggered update.
+    let mut consumed_visible_ids: HashSet<u32> =
+        store.pane_id_to_bookmark_idx.keys().copied().collect();
 
     // Defer mutations that need bookmark index rewrites until after the
     // bookmark borrow is released.
-    let mut to_append: Vec<(usize /* bookmark idx */, Pane /* the resolved pane */)> = Vec::new();
+    let mut to_append: Vec<(
+        usize, /* bookmark idx */
+        Pane,  /* the resolved pane */
+    )> = Vec::new();
     let mut to_place: Vec<(usize /* bookmark idx */, usize /* slot */, Pane)> = Vec::new();
 
-    for (bk_idx, b) in store.bookmarks.iter().enumerate() {
-        // Skip already-resolved bookmarks (their pane id is in the map).
+    let mut matched_visible: Vec<Option<usize>> = vec![None; store.bookmarks.len()];
+
+    // Pass 1: reserve every available trusted exact-id claim globally BEFORE
+    // any fallback matching. Otherwise an earlier duplicate-title bookmark
+    // whose own id is absent can steal a later bookmark's visible exact id.
+    for (bk_idx, bookmark) in store.bookmarks.iter().enumerate() {
         if store.is_resolved(bk_idx) {
             continue;
         }
-
-        // ── Match by stable id FIRST (title-independent) ────────────────────
-        // Pane titles drift (pi rewrites them), so a saved (tab,title) may no
-        // longer match the live pane. The pane id is stable for the session,
-        // so prefer it. Fall back to (tab_name, pane_title) only when the
-        // bookmark has no id yet (older on-disk file) or its id is no longer
-        // visible (cross-session restore: ids were reassigned).
-        let matched = b
-            .id
-            .and_then(|bid| {
-                visible
-                    .iter()
-                    .find(|v| v.id == bid && !consumed_visible_ids.contains(&v.id))
-            })
-            .or_else(|| {
-                visible.iter().find(|v| {
-                    v.tab_name == b.tab_name
-                        && v.pane_title == b.pane_title
-                        && !consumed_visible_ids.contains(&v.id)
-                })
-            });
-
-        let Some(v) = matched else {
-            continue; // not yet visible; try next round
+        let Some(bookmark_id) = bookmark.id else {
+            continue;
         };
-        consumed_visible_ids.insert(v.id);
+        if let Some((visible_idx, pane)) = visible
+            .iter()
+            .enumerate()
+            .find(|(_, pane)| pane.id == bookmark_id && !consumed_visible_ids.contains(&pane.id))
+        {
+            matched_visible[bk_idx] = Some(visible_idx);
+            consumed_visible_ids.insert(pane.id);
+        }
+    }
 
-        let p = Pane {
-            id: v.id,
-            tab_name: v.tab_name.clone(),
-            pane_title: v.pane_title.clone(),
-            tab_position: v.tab_position,
+    // Pass 2: exact-unmatched/no-id bookmarks may use fallback identity, but
+    // never a pane reserved by an exact claim in pass 1 or an earlier round.
+    for (bk_idx, bookmark) in store.bookmarks.iter().enumerate() {
+        if store.is_resolved(bk_idx) || matched_visible[bk_idx].is_some() {
+            continue;
+        }
+        if let Some((visible_idx, pane)) = visible.iter().enumerate().find(|(_, pane)| {
+            pane.tab_name == bookmark.tab_name
+                && pane.pane_title == bookmark.pane_title
+                && !consumed_visible_ids.contains(&pane.id)
+        }) {
+            matched_visible[bk_idx] = Some(visible_idx);
+            consumed_visible_ids.insert(pane.id);
+        }
+    }
+
+    for (bk_idx, visible_idx) in matched_visible.into_iter().enumerate() {
+        let Some(visible_idx) = visible_idx else {
+            continue;
+        };
+        let pane = &visible[visible_idx];
+        let resolved = Pane {
+            id: pane.id,
+            tab_name: pane.tab_name.clone(),
+            pane_title: pane.pane_title.clone(),
+            tab_position: pane.tab_position,
         };
 
-        match b.index {
-            Some(i) => to_place.push((bk_idx, i as usize, p)),
-            None => to_append.push((bk_idx, p)),
+        match store.bookmarks[bk_idx].index {
+            Some(index) => to_place.push((bk_idx, index as usize, resolved)),
+            None => to_append.push((bk_idx, resolved)),
         }
     }
 
@@ -151,6 +169,36 @@ pub fn resolve_restore_round(
         store.pane_id_to_bookmark_idx.insert(p.id, bk_idx);
         state_panes.push(Some(p));
     }
+}
+
+/// Keep RESOLVED bookmarks' persisted identity current with their live
+/// panes (AC `reorder.restore-identity-tracks-live-panes`): pane titles are
+/// volatile (pi rewrites them continuously) and pane ids reset on session
+/// restart, so the on-disk `(tab_name, pane_title)` fallback must always be
+/// the most recently observed identity — otherwise a restart's title
+/// fallback matches against stale titles and misses live panes.
+///
+/// Walks `pane_id_to_bookmark_idx` (the resolved set), refreshes any
+/// bookmark whose live pane reports a different `tab_name`/`pane_title`,
+/// and returns `true` iff anything changed (caller persists via the normal
+/// `save_if_changed` path). Pure state — no host calls.
+pub fn refresh_resolved_identities(store: &mut BookmarkStore, visible: &[VisiblePane]) -> bool {
+    let mut changed = false;
+    let (bookmarks, pane_map) = (&mut store.bookmarks, &store.pane_id_to_bookmark_idx);
+    for (&pane_id, &bk_idx) in pane_map {
+        let Some(v) = visible.iter().find(|v| v.id == pane_id) else {
+            continue; // not visible this round; nothing to refresh
+        };
+        let Some(b) = bookmarks.get_mut(bk_idx) else {
+            continue;
+        };
+        if b.tab_name != v.tab_name || b.pane_title != v.pane_title {
+            b.tab_name = v.tab_name.clone();
+            b.pane_title = v.pane_title.clone();
+            changed = true;
+        }
+    }
+    changed
 }
 
 #[cfg(test)]
@@ -309,10 +357,7 @@ mod tests {
     #[test]
     fn duplicate_bookmarks_distribute_to_duplicate_visible_panes() {
         let mut store = BookmarkStore {
-            bookmarks: vec![
-                bm("work", "nvim", Some(0)),
-                bm("work", "nvim", Some(1)),
-            ],
+            bookmarks: vec![bm("work", "nvim", Some(0)), bm("work", "nvim", Some(1))],
             ..Default::default()
         };
         let mut panes: Vec<Option<Pane>> = Vec::new();
@@ -326,6 +371,50 @@ mod tests {
         assert_eq!(panes[1].as_ref().unwrap().id, 11);
         assert_eq!(store.pane_id_to_bookmark_idx.get(&10), Some(&0));
         assert_eq!(store.pane_id_to_bookmark_idx.get(&11), Some(&1));
+    }
+
+    #[test]
+    fn duplicate_fallback_cannot_reclaim_same_pane_across_rounds() {
+        let mut store = BookmarkStore {
+            bookmarks: vec![bm("work", "nvim", Some(0)), bm("work", "nvim", Some(1))],
+            ..Default::default()
+        };
+        let mut panes: Vec<Option<Pane>> = Vec::new();
+        let visible = vec![vp(10, "work", "nvim")];
+
+        resolve_restore_round(&mut store, &mut panes, &visible);
+        resolve_restore_round(&mut store, &mut panes, &visible);
+
+        assert_eq!(panes[0].as_ref().map(|p| p.id), Some(10));
+        assert!(panes[1].is_none());
+        assert_eq!(store.pane_id_to_bookmark_idx.get(&10), Some(&0));
+    }
+
+    #[test]
+    fn exact_ids_are_reserved_before_duplicate_fallback_across_rounds() {
+        let mut first = bm("work", "nvim", Some(0));
+        first.id = Some(10);
+        let mut second = bm("work", "nvim", Some(1));
+        second.id = Some(11);
+        let mut store = BookmarkStore {
+            bookmarks: vec![first, second],
+            ..Default::default()
+        };
+        let mut panes: Vec<Option<Pane>> = Vec::new();
+
+        // Pane 11 appears first. It belongs to bookmark 1 by trusted id;
+        // bookmark 0 must NOT steal it by fallback.
+        resolve_restore_round(&mut store, &mut panes, &[vp(11, "work", "nvim")]);
+        assert!(panes[0].is_none());
+        assert_eq!(panes[1].as_ref().map(|p| p.id), Some(11));
+
+        resolve_restore_round(
+            &mut store,
+            &mut panes,
+            &[vp(10, "work", "nvim"), vp(11, "work", "nvim")],
+        );
+        assert_eq!(panes[0].as_ref().map(|p| p.id), Some(10));
+        assert_eq!(panes[1].as_ref().map(|p| p.id), Some(11));
     }
 
     // ── Non-bookmarked visible panes ignored ────────────────────────────────
@@ -471,5 +560,45 @@ mod tests {
 
         assert_eq!(panes[0].as_ref().unwrap().id, 10);
         assert_eq!(store.bookmarks[0].id, Some(10));
+    }
+
+    /// reorder.restore-identity-tracks-live-panes: a resolved pane's title
+    /// drift is re-persisted so the on-disk fallback identity stays fresh.
+    #[test]
+    fn resolved_title_drift_refreshes_bookmark_identity() {
+        let mut store = BookmarkStore {
+            bookmarks: vec![bm_id("work", "nvim", Some(0), Some(7))],
+            ..Default::default()
+        };
+        store.pane_id_to_bookmark_idx.insert(7, 0);
+
+        // Same pane id, retitled by its program (pi-style).
+        let visible = vec![vp(7, "work", "pi — fixing restore")];
+        let changed = refresh_resolved_identities(&mut store, &visible);
+
+        assert!(changed);
+        assert_eq!(store.bookmarks[0].pane_title, "pi — fixing restore");
+        assert_eq!(store.bookmarks[0].tab_name, "work");
+        assert_eq!(store.bookmarks[0].id, Some(7));
+    }
+
+    /// reorder.restore-identity-tracks-live-panes: no drift → no change
+    /// (so save_if_changed stays quiet); invisible panes are untouched.
+    #[test]
+    fn refresh_is_noop_without_drift_or_visibility() {
+        let mut store = BookmarkStore {
+            bookmarks: vec![
+                bm_id("work", "nvim", Some(0), Some(7)),
+                bm_id("logs", "tail", Some(1), Some(8)),
+            ],
+            ..Default::default()
+        };
+        store.pane_id_to_bookmark_idx.insert(7, 0);
+        store.pane_id_to_bookmark_idx.insert(8, 1);
+
+        // Pane 7 unchanged; pane 8 not visible this round.
+        let visible = vec![vp(7, "work", "nvim")];
+        assert!(!refresh_resolved_identities(&mut store, &visible));
+        assert_eq!(store.bookmarks[1].pane_title, "tail");
     }
 }
