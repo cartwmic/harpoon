@@ -40,9 +40,10 @@
       - harpoon-core/**
 - [x] 2.4 Restore identity hardening: same-session id-first resolution
   carries through hand-off; disk-parsed ids clear as generation-untrusted
-  before fallback restore/merge/shrink comparison; resolved bookmarks
-  refresh persisted `(tab_name, pane_title)` on observed drift; freeze/
-  placeholder/best-effort semantics regress nothing. Tests
+  before fallback restore/merge/shrink comparison; duplicate pane claims
+  remain consumed across staggered restore rounds; resolved bookmarks
+  refresh persisted identity; v1 keeps known baseline AND next-save v2
+  migration; freeze/placeholder/best-effort semantics regress nothing. Tests
   cite `reorder.restore-identity-tracks-live-panes`.
   - intent: fix
   - files_allowed:
@@ -55,8 +56,8 @@
   with `destination_plugin_id` (payload from core serializer), then
   `close_self()`; grant-gate the send; `None`/non-plugin id or
   unavailable payload after grant skips hand-off and degrades to successor
-  disk load; aggregate permission denial stays deny-safe/show-in-place
-  (never panic).
+  disk load; aggregate permission denial stays inert/deny-safe with terminal
+  visible + plugin alive (never panic).
   - intent: feature
   - files_allowed:
       - harpoon-plugin/**
@@ -83,12 +84,13 @@
 ## 4. Regression evidence + docs
 
 - [x] 4.1 Extend `scripts/toggle-pipe-regression.sh` (tmux-hosted scratch
-  sessions ONLY): (a) cross-tab respawn presents persisted targets on first
-  render (plus deterministic full race sequence covering no-index projection,
-  partial guard, and ready prune); (b) stale
+  sessions ONLY): (a) cross-tab respawn's first observed menu presents target
+  with disk removed (proves hand-off, not eventual disk recovery), plus core
+  full-race model; (b) stale
   re-delivered toggle does not hide the menu; (c) prune-guard — disk file
-  never shrinks during early-save window (plus deterministic partial-
-  manifest, deferred-prune, and stale-id-collision instrumentation); (d)
+  never shrinks during early-save window (continuous valid-JSON monitor plus
+  deterministic partial-manifest/deferred-prune/stale-id instrumentation);
+  (d)
   aggregate permission denial is inert/deny-safe (no panic, session/plugin
   survive while terminal remains visible; no impossible post-denial show).
   - intent: feature

@@ -57,7 +57,9 @@ review.md equals the merge-base before the first implementation commit.
   one-to-one/multiplicity-safe). Restore tests cite
   `reorder.restore-identity-tracks-live-panes` (same-session id-carry through
   hand-off; clear generation-untrusted disk ids before fallback/merge/shrink;
-  title-drift refresh emits a save; freeze/placeholder/best-effort
+  seed consumed live ids across staggered restore rounds; preserve v1 known
+  baseline while forcing next-save v2 migration; title refresh emits save;
+  freeze/placeholder/best-effort
   scenarios from the existing reorder suite stay green — run them
   explicitly).
 - **Verification:** full `cargo test -p harpoon-core` green (existing
@@ -84,12 +86,12 @@ review.md equals the merge-base before the first implementation commit.
 - **Covers:** T4.1, T4.2
 - **Pre-conditions:** wasm builds; tmux available; scratch sessions only
   (NEVER the user's live workspace session — standing rule).
-- **Action:** add scenarios (instant targets on cross-tab respawn;
-  stale-toggle tolerance; prune-guard disk-shrink window;
+- **Action:** add scenarios (first observed cross-tab menu while disk absent;
+  stale-toggle tolerance; continuous disk monitor over prune-guard respawns;
   aggregate-permission-denied no-panic + terminal/plugin survival) to
-  `scripts/toggle-pipe-regression.sh`, plus deterministic core
-  instrumentation for one composed bootstrap→no-index projection→partial
-  guard→ready prune sequence plus stale-id/multiplicity cases; README
+  `scripts/toggle-pipe-regression.sh`, plus deterministic core instrumentation
+  for bootstrap→no-index projection→partial guard→ready prune and stale-id/
+  multiplicity/staggered-restore cases; README
   permission + regrant + hand-off notes.
 - **Verification:** full regression script pass (existing 11 + new
   scenarios); record counts in review.md Execution Notes.
