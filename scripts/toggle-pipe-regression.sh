@@ -276,7 +276,8 @@ press Escape                            # close → parked on T3
 expect_state "S8-mid hidden after bookmark add" T3 ""
 rm -f "$DATA_FILE"                     # force disk fallback to empty
 za go-to-tab-name T1; sleep 1
-press F6
+# Do NOT use press(): it sleeps 2s after send and would miss the first frame.
+tmux send-keys -t "$HOST" F6
 FIRST_MENU_RC=1
 SCREEN=""
 for try in $(seq 1 150); do

@@ -224,11 +224,13 @@ impl ZellijPlugin for State {
                             should_render = self.store_ready_to_render();
                         }
                         DiskLoadDecision::MergeMissing => {
-                            if let Some(disk) = Persistence::parse_content(&content) {
+                            if let Some((disk, needs_v2_migration)) =
+                                Persistence::parse_content(&content)
+                            {
                                 // Disk entries absent from memory append
                                 // (index=None); memory mutations untouched.
                                 merge_missing(&mut self.store.bookmarks, &disk);
-                                self.persistence.set_baseline(disk);
+                                self.persistence.set_disk_baseline(disk, needs_v2_migration);
                             }
                             // Explicit resolution flushes any queued user
                             // mutation even when content was malformed.
@@ -240,8 +242,10 @@ impl ZellijPlugin for State {
                             // consume disk as reconciliation input/baseline
                             // without replacing or adjoining stale rows into
                             // newer memory.
-                            if let Some(disk) = Persistence::parse_content(&content) {
-                                self.persistence.set_baseline(disk);
+                            if let Some((disk, needs_v2_migration)) =
+                                Persistence::parse_content(&content)
+                            {
+                                self.persistence.set_disk_baseline(disk, needs_v2_migration);
                             }
                             self.update_panes(true);
                             should_render = self.store_ready_to_render();

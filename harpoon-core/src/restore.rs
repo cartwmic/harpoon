@@ -90,47 +90,59 @@ pub fn resolve_restore_round(
     )> = Vec::new();
     let mut to_place: Vec<(usize /* bookmark idx */, usize /* slot */, Pane)> = Vec::new();
 
-    for (bk_idx, b) in store.bookmarks.iter().enumerate() {
-        // Skip already-resolved bookmarks (their pane id is in the map).
+    let mut matched_visible: Vec<Option<usize>> = vec![None; store.bookmarks.len()];
+
+    // Pass 1: reserve every available trusted exact-id claim globally BEFORE
+    // any fallback matching. Otherwise an earlier duplicate-title bookmark
+    // whose own id is absent can steal a later bookmark's visible exact id.
+    for (bk_idx, bookmark) in store.bookmarks.iter().enumerate() {
         if store.is_resolved(bk_idx) {
             continue;
         }
-
-        // ── Match by stable id FIRST (title-independent) ────────────────────
-        // Pane titles drift (pi rewrites them), so a saved (tab,title) may no
-        // longer match the live pane. The pane id is stable for the session,
-        // so prefer it. Fall back to (tab_name, pane_title) only when the
-        // bookmark has no id yet (older on-disk file) or its id is no longer
-        // visible (cross-session restore: ids were reassigned).
-        let matched =
-            b.id.and_then(|bid| {
-                visible
-                    .iter()
-                    .find(|v| v.id == bid && !consumed_visible_ids.contains(&v.id))
-            })
-            .or_else(|| {
-                visible.iter().find(|v| {
-                    v.tab_name == b.tab_name
-                        && v.pane_title == b.pane_title
-                        && !consumed_visible_ids.contains(&v.id)
-                })
-            });
-
-        let Some(v) = matched else {
-            continue; // not yet visible; try next round
+        let Some(bookmark_id) = bookmark.id else {
+            continue;
         };
-        consumed_visible_ids.insert(v.id);
+        if let Some((visible_idx, pane)) = visible
+            .iter()
+            .enumerate()
+            .find(|(_, pane)| pane.id == bookmark_id && !consumed_visible_ids.contains(&pane.id))
+        {
+            matched_visible[bk_idx] = Some(visible_idx);
+            consumed_visible_ids.insert(pane.id);
+        }
+    }
 
-        let p = Pane {
-            id: v.id,
-            tab_name: v.tab_name.clone(),
-            pane_title: v.pane_title.clone(),
-            tab_position: v.tab_position,
+    // Pass 2: exact-unmatched/no-id bookmarks may use fallback identity, but
+    // never a pane reserved by an exact claim in pass 1 or an earlier round.
+    for (bk_idx, bookmark) in store.bookmarks.iter().enumerate() {
+        if store.is_resolved(bk_idx) || matched_visible[bk_idx].is_some() {
+            continue;
+        }
+        if let Some((visible_idx, pane)) = visible.iter().enumerate().find(|(_, pane)| {
+            pane.tab_name == bookmark.tab_name
+                && pane.pane_title == bookmark.pane_title
+                && !consumed_visible_ids.contains(&pane.id)
+        }) {
+            matched_visible[bk_idx] = Some(visible_idx);
+            consumed_visible_ids.insert(pane.id);
+        }
+    }
+
+    for (bk_idx, visible_idx) in matched_visible.into_iter().enumerate() {
+        let Some(visible_idx) = visible_idx else {
+            continue;
+        };
+        let pane = &visible[visible_idx];
+        let resolved = Pane {
+            id: pane.id,
+            tab_name: pane.tab_name.clone(),
+            pane_title: pane.pane_title.clone(),
+            tab_position: pane.tab_position,
         };
 
-        match b.index {
-            Some(i) => to_place.push((bk_idx, i as usize, p)),
-            None => to_append.push((bk_idx, p)),
+        match store.bookmarks[bk_idx].index {
+            Some(index) => to_place.push((bk_idx, index as usize, resolved)),
+            None => to_append.push((bk_idx, resolved)),
         }
     }
 
@@ -376,6 +388,33 @@ mod tests {
         assert_eq!(panes[0].as_ref().map(|p| p.id), Some(10));
         assert!(panes[1].is_none());
         assert_eq!(store.pane_id_to_bookmark_idx.get(&10), Some(&0));
+    }
+
+    #[test]
+    fn exact_ids_are_reserved_before_duplicate_fallback_across_rounds() {
+        let mut first = bm("work", "nvim", Some(0));
+        first.id = Some(10);
+        let mut second = bm("work", "nvim", Some(1));
+        second.id = Some(11);
+        let mut store = BookmarkStore {
+            bookmarks: vec![first, second],
+            ..Default::default()
+        };
+        let mut panes: Vec<Option<Pane>> = Vec::new();
+
+        // Pane 11 appears first. It belongs to bookmark 1 by trusted id;
+        // bookmark 0 must NOT steal it by fallback.
+        resolve_restore_round(&mut store, &mut panes, &[vp(11, "work", "nvim")]);
+        assert!(panes[0].is_none());
+        assert_eq!(panes[1].as_ref().map(|p| p.id), Some(11));
+
+        resolve_restore_round(
+            &mut store,
+            &mut panes,
+            &[vp(10, "work", "nvim"), vp(11, "work", "nvim")],
+        );
+        assert_eq!(panes[0].as_ref().map(|p| p.id), Some(10));
+        assert_eq!(panes[1].as_ref().map(|p| p.id), Some(11));
     }
 
     // ── Non-bookmarked visible panes ignored ────────────────────────────────
