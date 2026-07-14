@@ -1,22 +1,26 @@
 # Doneness
 
-**Doneness:** not
+**Doneness:** satisfied
 
-**Judge:** openai-codex/gpt-5.6-sol (review_mode: blind-single-judge)
-**review_mode:** blind-single-judge
+**Judge:** openai-codex/gpt-5.6-sol + claude-bridge/claude-opus-4-8
+**review_mode:** disclosure-consensus
 **Frozen-Intent SHA:** ccc4c89a0cf8858521805f4a43253b2d51473b6fa9046997246039b86ad85da3
-**Attested HEAD:** db48288dd0cc8080e9a01e57a9ca9f092accf01d
+**Attested HEAD:** 155bb7a6201d60d64e99eaad66609a8f2581c010
 **Diff Base SHA:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4
-**Reviewed Range:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4..db48288dd0cc8080e9a01e57a9ca9f092accf01d
+**Reviewed Range:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4..155bb7a6201d60d64e99eaad66609a8f2581c010
 
 ## Verdict rationale
 
-Round-5 still allows fallback to steal another bookmark's trusted exact id,
-loses v1 migration provenance in reconciliation, and starts S8 observation
-after the invocation helper's two-second delay.
+Satisfied against frozen intent and delta acceptance criteria. Successor gets
+targeted same-generation state before predecessor close; first actual render
+is a total live/saved-identity projection; same-pipe re-delivery is tolerated;
+late disk reconciliation preserves newer memory and v1 migration provenance;
+shrinking saves require independently resolved disk plus full manifest;
+trusted exact ids reserve globally before fallback across staggered rounds;
+disk ids clear as generation-untrusted; fallback identity refreshes while
+resolved; deny-safe/degraded paths and first-render/early-save evidence exist.
+Both disclosure participants independently returned satisfied.
 
 ## Gaps
 
-- Exact trusted ids are not globally reserved before fallback restore
-- Reconcile path loses v1-to-v2 migration provenance
-- S8 does not observe from invocation time
+- None.
