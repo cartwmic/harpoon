@@ -79,9 +79,9 @@ This requirement SHALL NOT regress the existing restore semantics:
 restore-freeze on user mutation, placeholder rows for unresolved bookmarks
 (including valid post-freeze `index=None` rows appended after indexed slots),
 and best-effort ordering for non-unique-identity panes all apply unchanged.
-Merge/shrink comparison SHALL nevertheless preserve duplicate multiplicity:
-trusted differing ids are distinct, and one fallback row SHALL NOT satisfy
-two persisted duplicate rows.
+Merge/shrink/restore comparison SHALL preserve duplicate multiplicity across
+staggered rounds: trusted differing ids are distinct, and one fallback row
+or one live pane SHALL NOT satisfy two persisted duplicate rows.
 
 #### Scenario: respawned successor resolves by id, ignoring title drift
 - **GIVEN** a bookmark resolved to pane id 7 whose title has since been

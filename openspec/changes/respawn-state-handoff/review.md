@@ -189,6 +189,15 @@ non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -
 - 2026-07-13 — Round-4 candidate worktree `8163934`: clean after merging
   strict-valid AC corrections; implementation bytes unchanged from validated
   `9bda01a` (core 266/266, wasm release, regression 26/26).
+- 2026-07-13 — Blind code-review round 4 at `8163934`: Sol fail, Claude Opus
+  replacement pass; max P0=0/P1=3/P2=1/P3=1; designated doneness = not.
+  First Opus output used a non-template verdict heading and was INVALID; same
+  unchanged-snapshot reviewer re-dispatched with template. Fix `1d08994` seeds
+  cross-round consumed pane ids, separates v1 known baseline from mandatory
+  migration, makes row projection total for corrupt indexes, removes disk in
+  S8 so first-observed BMARK1 proves bootstrap, and continuously monitors
+  valid disk JSON through S10's early windows. Core 268/268; wasm/regression
+  26/26 green.
 
 ## Fidelity Round Ledger
 
