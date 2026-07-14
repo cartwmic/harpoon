@@ -198,6 +198,8 @@ non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -
   S8 so first-observed BMARK1 proves bootstrap, and continuously monitors
   valid disk JSON through S10's early windows. Core 268/268; wasm/regression
   26/26 green.
+- 2026-07-13 — Round-5 candidate worktree `db48288`: clean after strict-valid
+  AC merge; implementation is validated `1d08994`, regression 26/26.
 
 ## Fidelity Round Ledger
 
