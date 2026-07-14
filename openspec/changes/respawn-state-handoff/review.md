@@ -198,6 +198,14 @@ non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -
   S8 so first-observed BMARK1 proves bootstrap, and continuously monitors
   valid disk JSON through S10's early windows. Core 268/268; wasm/regression
   26/26 green.
+- 2026-07-13 — Round-5 candidate worktree `db48288`: clean after strict-valid
+  AC merge; implementation `1d08994`, core 268/268, regression 26/26.
+- 2026-07-13 — Blind code-review round 5 at `db48288`: Sol fail, Claude Opus
+  replacement pass; max P0=0/P1=3/P2=0/P3=2; designated doneness = not.
+  Fix `11bc19d`: two-pass restore reserves every visible trusted exact id
+  before fallback; disk parse returns v1 provenance through both reconcile
+  branches; S8 bypasses the 2-second `press` helper and observes immediately
+  after raw F6 send. Core 269/269, wasm clean, regression 26/26.
 
 ## Fidelity Round Ledger
 

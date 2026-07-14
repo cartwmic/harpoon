@@ -41,9 +41,10 @@
 - [x] 2.4 Restore identity hardening: same-session id-first resolution
   carries through hand-off; disk-parsed ids clear as generation-untrusted
   before fallback restore/merge/shrink comparison; duplicate pane claims
-  remain consumed across staggered restore rounds; resolved bookmarks
-  refresh persisted identity; v1 keeps known baseline AND next-save v2
-  migration; freeze/placeholder/best-effort semantics regress nothing. Tests
+  remain consumed across staggered restore rounds and all visible exact-id
+  claims reserve before fallback; resolved bookmarks refresh identity; v1
+  format provenance survives direct load AND reconciliation so next save
+  migrates v2; freeze/placeholder/best-effort semantics regress nothing. Tests
   cite `reorder.restore-identity-tracks-live-panes`.
   - intent: fix
   - files_allowed:

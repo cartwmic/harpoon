@@ -57,8 +57,9 @@ review.md equals the merge-base before the first implementation commit.
   one-to-one/multiplicity-safe). Restore tests cite
   `reorder.restore-identity-tracks-live-panes` (same-session id-carry through
   hand-off; clear generation-untrusted disk ids before fallback/merge/shrink;
-  seed consumed live ids across staggered restore rounds; preserve v1 known
-  baseline while forcing next-save v2 migration; title refresh emits save;
+  seed consumed live ids across rounds + reserve all visible exact claims
+  before fallback; preserve v1 provenance in direct/reconcile baselines while
+  forcing next-save v2 migration; title refresh emits save;
   freeze/placeholder/best-effort
   scenarios from the existing reorder suite stay green — run them
   explicitly).
@@ -86,7 +87,8 @@ review.md equals the merge-base before the first implementation commit.
 - **Covers:** T4.1, T4.2
 - **Pre-conditions:** wasm builds; tmux available; scratch sessions only
   (NEVER the user's live workspace session — standing rule).
-- **Action:** add scenarios (first observed cross-tab menu while disk absent;
+- **Action:** add scenarios (observe from invocation with no helper delay:
+  first cross-tab menu while disk absent;
   stale-toggle tolerance; continuous disk monitor over prune-guard respawns;
   aggregate-permission-denied no-panic + terminal/plugin survival) to
   `scripts/toggle-pipe-regression.sh`, plus deterministic core instrumentation
