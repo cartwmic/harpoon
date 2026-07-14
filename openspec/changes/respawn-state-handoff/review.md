@@ -186,6 +186,9 @@ non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -
   `index=None` saved identities, enrolls all adopted live ids in one-shot
   deferred prune, and adds one composed deterministic race model invoked by
   S0. Core 266/266, wasm clean, scratch regression 26/26.
+- 2026-07-13 — Round-4 candidate worktree `8163934`: clean after merging
+  strict-valid AC corrections; implementation bytes unchanged from validated
+  `9bda01a` (core 266/266, wasm release, regression 26/26).
 
 ## Fidelity Round Ledger
 
