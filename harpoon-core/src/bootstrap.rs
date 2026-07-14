@@ -146,8 +146,14 @@ pub fn disk_load_decision(state: &StoreBootState) -> DiskLoadDecision {
 /// survive title drift; the fallback pair bridges persisted rows whose ids
 /// were deliberately cleared as generation-untrusted on disk load.
 fn same_bookmark(a: &PaneBookmark, b: &PaneBookmark) -> bool {
-    matches!((a.id, b.id), (Some(aid), Some(bid)) if aid == bid)
-        || (a.tab_name == b.tab_name && a.pane_title == b.pane_title)
+    match (a.id, b.id) {
+        // Two trusted same-generation ids are distinct even when volatile
+        // fallback text collides. Title drift cannot split equal ids.
+        (Some(aid), Some(bid)) => aid == bid,
+        // Disk ids are cleared before this comparison. Mixed/no-id rows use
+        // exact fallback identity to bridge persisted and live state.
+        _ => a.tab_name == b.tab_name && a.pane_title == b.pane_title,
+    }
 }
 
 /// Pane ids are stable only within one zellij session generation. Disk files
@@ -165,8 +171,18 @@ pub fn clear_untrusted_pane_ids(bookmarks: &mut [PaneBookmark]) {
 /// `index = None` (append-on-resolve semantics — never disturb the
 /// user's current layout).
 pub fn merge_missing(memory: &mut Vec<PaneBookmark>, disk: &[PaneBookmark]) {
+    // One-to-one matching preserves multiplicity for duplicate fallback
+    // identities: one memory row can consume at most one disk row.
+    let original_len = memory.len();
+    let mut consumed = vec![false; original_len];
     for d in disk {
-        if !memory.iter().any(|m| same_bookmark(m, d)) {
+        if let Some(index) = memory[..original_len]
+            .iter()
+            .enumerate()
+            .find_map(|(index, m)| (!consumed[index] && same_bookmark(m, d)).then_some(index))
+        {
+            consumed[index] = true;
+        } else {
             let mut b = d.clone();
             b.index = None;
             memory.push(b);
@@ -208,9 +224,18 @@ impl DuplicateToggleGuard {
 /// AC `reorder.destructive-save-guard`: a shrinking save is one that drops
 /// an identity present in the last persisted state.
 pub fn is_shrinking_save(last_persisted: &[PaneBookmark], candidate: &[PaneBookmark]) -> bool {
-    last_persisted
-        .iter()
-        .any(|p| !candidate.iter().any(|c| same_bookmark(c, p)))
+    // Multiset containment, not set membership: one candidate cannot satisfy
+    // two persisted duplicate rows.
+    let mut consumed = vec![false; candidate.len()];
+    for persisted in last_persisted {
+        let Some(index) = candidate.iter().enumerate().find_map(|(index, item)| {
+            (!consumed[index] && same_bookmark(item, persisted)).then_some(index)
+        }) else {
+            return true;
+        };
+        consumed[index] = true;
+    }
+    false
 }
 
 /// AC `reorder.destructive-save-guard`: shrinking saves are allowed only
@@ -267,16 +292,13 @@ impl DeferredPruneGuard {
             return Vec::new();
         }
         let visible: HashSet<u32> = visible_ids.iter().copied().collect();
-        let prunable: Vec<u32> = self
-            .pending_ids
-            .iter()
-            .copied()
+        // Full manifest is authoritative for this generation: visible ids
+        // are proven live and absent ids are prunable. Drain both classes so
+        // the guard is one-shot and cannot grow across future rounds.
+        std::mem::take(&mut self.pending_ids)
+            .into_iter()
             .filter(|id| !visible.contains(id))
-            .collect();
-        for id in &prunable {
-            self.pending_ids.remove(id);
-        }
-        prunable
+            .collect()
     }
 }
 
@@ -541,6 +563,26 @@ mod tests {
     }
 
     #[test]
+    fn duplicate_fallback_identities_preserve_multiplicity_and_trusted_ids() {
+        let disk = vec![
+            bm(None, "same", "title", Some(0)),
+            bm(None, "same", "title", Some(1)),
+        ];
+        let one = vec![bm(Some(10), "same", "title", Some(0))];
+        assert!(is_shrinking_save(&disk, &one));
+
+        let mut memory = one;
+        merge_missing(&mut memory, &disk);
+        assert_eq!(memory.len(), 2, "second duplicate must append");
+
+        let trusted = vec![
+            bm(Some(10), "same", "title", Some(0)),
+            bm(Some(11), "same", "title", Some(1)),
+        ];
+        assert!(is_shrinking_save(&trusted, &trusted[..1]));
+    }
+
+    #[test]
     fn guarded_save_policy_is_wholly_core_owned() {
         let candidate = vec![bm(Some(1), "a", "t1", Some(0))];
         assert_eq!(
@@ -621,6 +663,46 @@ mod tests {
             ..Default::default()
         };
         assert!(store_ready_to_render(&denied, 0, 0));
+    }
+
+    #[test]
+    fn deterministic_respawn_race_sequence_projects_all_rows_and_guards_disk() {
+        // One model test composes the exact decisions crossed by S8/S10:
+        // bootstrap-before-manifest, a valid no-index pending bookmark,
+        // partial-manifest shrink suppression, then full-manifest prune.
+        let baseline = vec![
+            bm(Some(1), "work", "live", Some(0)),
+            bm(Some(2), "logs", "pending", None),
+        ];
+        let store = BookmarkStore {
+            bookmarks: baseline.clone(),
+            ..Default::default()
+        };
+        let dispatch = crate::DispatchState::default();
+        let entries = crate::build_row_entries(&dispatch, &store);
+        let mut state = StoreBootState {
+            adopted: true,
+            ..Default::default()
+        };
+        assert_eq!(entries.len(), baseline.len());
+        assert!(store_ready_to_render(&state, entries.len(), baseline.len()));
+
+        let candidate = vec![baseline[0].clone()];
+        assert_eq!(
+            guarded_save_decision(&state, Some(&baseline), &candidate),
+            GuardedSaveDecision::Defer
+        );
+        let mut guard = DeferredPruneGuard::default();
+        guard.remember(2);
+        assert!(guard.take_prunable(&state, &[1]).is_empty());
+
+        state.disk_resolved = true;
+        state.manifest_seen = true;
+        assert_eq!(guard.take_prunable(&state, &[1]), vec![2]);
+        assert_eq!(
+            guarded_save_decision(&state, Some(&baseline), &candidate),
+            GuardedSaveDecision::Save
+        );
     }
 
     #[test]

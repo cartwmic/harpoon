@@ -97,17 +97,27 @@ pub fn build_row_entries<'a>(state: &'a DispatchState, store: &BookmarkStore) ->
     let mut placeholders: std::collections::HashMap<usize, (String, String)> =
         std::collections::HashMap::new();
     let mut max_saved_idx = 0usize;
+    let mut append_placeholders: Vec<(String, String)> = Vec::new();
     for (bk_idx, b) in store.bookmarks.iter().enumerate() {
-        if let Some(idx) = b.index {
-            let i = idx as usize;
-            if i + 1 > max_saved_idx {
-                max_saved_idx = i + 1;
+        match b.index {
+            Some(idx) => {
+                let i = idx as usize;
+                if i + 1 > max_saved_idx {
+                    max_saved_idx = i + 1;
+                }
+                // Only render as placeholder if the bookmark is NOT resolved
+                // (no live pane mapped to it).
+                if !store.is_resolved(bk_idx) {
+                    placeholders.insert(i, (b.tab_name.clone(), b.pane_title.clone()));
+                }
             }
-            // Only render as placeholder if the bookmark is NOT resolved
-            // (no live pane mapped to it).
-            if !store.is_resolved(bk_idx) {
-                placeholders.insert(i, (b.tab_name.clone(), b.pane_title.clone()));
+            None if !store.is_resolved(bk_idx) => {
+                // Persisted post-freeze bookmarks are valid with no slot.
+                // Project them after indexed rows so first-render fullness is
+                // satisfiable even before their pane becomes visible.
+                append_placeholders.push((b.tab_name.clone(), b.pane_title.clone()));
             }
+            None => {}
         }
     }
 
@@ -132,6 +142,14 @@ pub fn build_row_entries<'a>(state: &'a DispatchState, store: &BookmarkStore) ->
         // safely.)
         break;
     }
+    entries.extend(
+        append_placeholders
+            .into_iter()
+            .map(|(saved_tab_name, saved_pane_title)| RowEntry::Placeholder {
+                saved_tab_name,
+                saved_pane_title,
+            }),
+    );
     entries
 }
 

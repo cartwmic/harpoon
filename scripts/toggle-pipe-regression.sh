@@ -106,6 +106,10 @@ CORE_TEST_RC=0
 cargo test -p harpoon-core --manifest-path "$REPO_ROOT/Cargo.toml" \
   disk_ids_are_cleared_before_cross_restart_identity_use >/dev/null 2>&1 || CORE_TEST_RC=$?
 assert "S0 stale pane-id collision instrumentation" "$CORE_TEST_RC"
+CORE_TEST_RC=0
+cargo test -p harpoon-core --manifest-path "$REPO_ROOT/Cargo.toml" \
+  deterministic_respawn_race_sequence_projects_all_rows_and_guards_disk >/dev/null 2>&1 || CORE_TEST_RC=$?
+assert "S0 deterministic bootstrap→partial-manifest→ready-prune sequence" "$CORE_TEST_RC"
 
 PERM_FILE="$(zellij setup --check 2>/dev/null | sed -n 's/^\[CACHE DIR\]: //p')/permissions.kdl"
 if [ -f "$PERM_FILE" ]; then

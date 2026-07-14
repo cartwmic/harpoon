@@ -845,6 +845,14 @@ impl State {
         match bootstrap_arrival_decision(&self.boot) {
             AdoptDecision::Ignore => false,
             AdoptDecision::Adopt => {
+                // Every id in a targeted hand-off was live/resolved state in
+                // the predecessor's session generation. Enrol it before the
+                // successor clears materialization: once disk + full manifest
+                // are ready, absent ids resume normal prune rather than
+                // becoming permanent ghosts.
+                for pane_id in payload.bookmarks.iter().filter_map(|b| b.id) {
+                    self.deferred_prunes.remember(pane_id);
+                }
                 self.store.bookmarks = payload.bookmarks.clone();
                 self.store.pane_id_to_bookmark_idx.clear();
                 // Force a clean restore round against the adopted set (ids
