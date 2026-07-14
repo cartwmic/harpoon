@@ -363,7 +363,7 @@ pub fn store_ready_to_render(
     if state.permission_denied {
         return true;
     }
-    (state.adopted || state.disk_resolved) && presented_bookmarks == total_bookmarks
+    (state.adopted || state.disk_resolved) && presented_bookmarks >= total_bookmarks
 }
 
 #[cfg(test)]

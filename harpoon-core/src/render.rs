@@ -85,71 +85,58 @@ pub enum RowEntry<'a> {
 
 // ── build_row_entries ────────────────────────────────────────────────────────
 
-/// Produce the per-slot row entries from the sparse `state.panes` Vec and
-/// `BookmarkStore`. Live panes win over placeholders at the same index;
-/// `None` slots become placeholders sourced from the matching bookmark
-/// (the unresolved `Some(_)` index entry).
-///
-/// Output length is `max(panes.len(), max_unresolved_saved_index + 1)`, so
-/// that placeholder slots beyond the current resolved set are still rendered.
+/// Produce row entries from sparse live panes plus canonical bookmarks.
+/// Materialized pane order wins; unresolved saved-index rows fill matching
+/// slots; every remaining bookmark (gapped/duplicate/index=None included)
+/// appends as a saved-identity placeholder. Thus every persistable bookmark
+/// is projected at least once and render readiness cannot deadlock.
 pub fn build_row_entries<'a>(state: &'a DispatchState, store: &BookmarkStore) -> Vec<RowEntry<'a>> {
-    // Collect placeholder data keyed on slot index.
-    let mut placeholders: std::collections::HashMap<usize, (String, String)> =
-        std::collections::HashMap::new();
-    let mut max_saved_idx = 0usize;
-    let mut append_placeholders: Vec<(String, String)> = Vec::new();
-    for (bk_idx, b) in store.bookmarks.iter().enumerate() {
-        match b.index {
-            Some(idx) => {
-                let i = idx as usize;
-                if i + 1 > max_saved_idx {
-                    max_saved_idx = i + 1;
-                }
-                // Only render as placeholder if the bookmark is NOT resolved
-                // (no live pane mapped to it).
-                if !store.is_resolved(bk_idx) {
-                    placeholders.insert(i, (b.tab_name.clone(), b.pane_title.clone()));
-                }
+    // Preserve materialized pane order first. Track which canonical bookmark
+    // each live/placeholder slot represents, then append every unrepresented
+    // bookmark in saved-index order. This keeps normal dense behavior and
+    // projects all parseable gapped/duplicate/index=None rows exactly once.
+    let mut entries = Vec::with_capacity(state.panes.len().max(store.bookmarks.len()));
+    let mut represented = std::collections::HashSet::new();
+    for (slot, pane) in state.panes.iter().enumerate() {
+        if let Some(pane) = pane {
+            entries.push(RowEntry::Live(pane));
+            if let Some(&bookmark_idx) = store.pane_id_to_bookmark_idx.get(&pane.id) {
+                represented.insert(bookmark_idx);
             }
-            None if !store.is_resolved(bk_idx) => {
-                // Persisted post-freeze bookmarks are valid with no slot.
-                // Project them after indexed rows so first-render fullness is
-                // satisfiable even before their pane becomes visible.
-                append_placeholders.push((b.tab_name.clone(), b.pane_title.clone()));
-            }
-            None => {}
-        }
-    }
-
-    let total = state.panes.len().max(max_saved_idx);
-    let mut entries: Vec<RowEntry<'a>> = Vec::with_capacity(total);
-
-    for i in 0..total {
-        // Live wins at this index if present.
-        if let Some(Some(p)) = state.panes.get(i) {
-            entries.push(RowEntry::Live(p));
-            continue;
-        }
-        if let Some((tab, title)) = placeholders.remove(&i) {
+        } else if let Some((bookmark_idx, bookmark)) =
+            store
+                .bookmarks
+                .iter()
+                .enumerate()
+                .find(|(bookmark_idx, bookmark)| {
+                    !represented.contains(bookmark_idx)
+                        && bookmark.index.map(usize::from) == Some(slot)
+                })
+        {
+            represented.insert(bookmark_idx);
             entries.push(RowEntry::Placeholder {
-                saved_tab_name: tab,
-                saved_pane_title: title,
+                saved_tab_name: bookmark.tab_name.clone(),
+                saved_pane_title: bookmark.pane_title.clone(),
             });
-            continue;
         }
-        // Slot index past panes.len() and no placeholder bookmark — skip.
-        // (This shouldn't happen given our `total` calc above, but bail out
-        // safely.)
-        break;
     }
-    entries.extend(
-        append_placeholders
-            .into_iter()
-            .map(|(saved_tab_name, saved_pane_title)| RowEntry::Placeholder {
-                saved_tab_name,
-                saved_pane_title,
-            }),
-    );
+
+    let mut remaining: Vec<usize> = (0..store.bookmarks.len())
+        .filter(|index| !represented.contains(index))
+        .collect();
+    remaining.sort_by_key(|&bookmark_idx| {
+        store.bookmarks[bookmark_idx]
+            .index
+            .map(|index| (0u8, index, bookmark_idx))
+            .unwrap_or((1u8, u16::MAX, bookmark_idx))
+    });
+    entries.extend(remaining.into_iter().map(|bookmark_idx| {
+        let bookmark = &store.bookmarks[bookmark_idx];
+        RowEntry::Placeholder {
+            saved_tab_name: bookmark.tab_name.clone(),
+            saved_pane_title: bookmark.pane_title.clone(),
+        }
+    }));
     entries
 }
 
@@ -677,6 +664,36 @@ mod tests {
         assert!(rows[1].is_placeholder);
         assert!(rows[1].text.contains("b | y  (resolving)"));
         assert!(rows[1].text.starts_with("2  "));
+    }
+
+    #[test]
+    fn row_projection_is_total_for_gapped_and_duplicate_saved_indexes() {
+        let state = DispatchState::default();
+        let store = BookmarkStore {
+            bookmarks: vec![
+                PaneBookmark {
+                    tab_name: "a".into(),
+                    pane_title: "zero".into(),
+                    index: Some(0),
+                    id: None,
+                },
+                PaneBookmark {
+                    tab_name: "b".into(),
+                    pane_title: "gap-two".into(),
+                    index: Some(2),
+                    id: None,
+                },
+                PaneBookmark {
+                    tab_name: "c".into(),
+                    pane_title: "duplicate-two".into(),
+                    index: Some(2),
+                    id: None,
+                },
+            ],
+            ..Default::default()
+        };
+        let entries = build_row_entries(&state, &store);
+        assert_eq!(entries.len(), store.bookmarks.len());
     }
 
     #[test]

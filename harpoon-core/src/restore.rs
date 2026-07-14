@@ -76,7 +76,11 @@ pub fn resolve_restore_round(
     }
 
     // ── Step 2: walk bookmarks, claim visible panes ──────────────────────────
-    let mut consumed_visible_ids: HashSet<u32> = HashSet::new();
+    // Claims persist across restore rounds in pane_id_to_bookmark_idx. Seed
+    // this round from those claims so a second duplicate fallback bookmark
+    // cannot take the same live pane on a later staggered update.
+    let mut consumed_visible_ids: HashSet<u32> =
+        store.pane_id_to_bookmark_idx.keys().copied().collect();
 
     // Defer mutations that need bookmark index rewrites until after the
     // bookmark borrow is released.
@@ -355,6 +359,23 @@ mod tests {
         assert_eq!(panes[1].as_ref().unwrap().id, 11);
         assert_eq!(store.pane_id_to_bookmark_idx.get(&10), Some(&0));
         assert_eq!(store.pane_id_to_bookmark_idx.get(&11), Some(&1));
+    }
+
+    #[test]
+    fn duplicate_fallback_cannot_reclaim_same_pane_across_rounds() {
+        let mut store = BookmarkStore {
+            bookmarks: vec![bm("work", "nvim", Some(0)), bm("work", "nvim", Some(1))],
+            ..Default::default()
+        };
+        let mut panes: Vec<Option<Pane>> = Vec::new();
+        let visible = vec![vp(10, "work", "nvim")];
+
+        resolve_restore_round(&mut store, &mut panes, &visible);
+        resolve_restore_round(&mut store, &mut panes, &visible);
+
+        assert_eq!(panes[0].as_ref().map(|p| p.id), Some(10));
+        assert!(panes[1].is_none());
+        assert_eq!(store.pane_id_to_bookmark_idx.get(&10), Some(&0));
     }
 
     // ── Non-bookmarked visible panes ignored ────────────────────────────────

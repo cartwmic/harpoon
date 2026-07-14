@@ -262,31 +262,41 @@ assert "S7 toggle after cold jump_pane lands menu+view on J1 (focus=$f2 harpoon=
 
 # ── S8: cross-tab respawn presents persisted targets (state hand-off) ────
 # AC pane-pipe-api.respawn-state-hand-off: bookmark a pane on T3, then
-# invoke cross-tab from T1 — the respawned successor's menu must list the
-# bookmark (the outgoing instance hands its store over; no
-# invoke-again-to-recover). NOTE on timing granularity: tmux capture
-# resolution (~seconds) cannot distinguish hand-off (0ms) from a fast disk
-# load; the instant-adoption property itself is covered by native core
-# tests — this scenario asserts the end-to-end functional outcome.
+# invoke cross-tab from T1 WITH THE DISK FILE REMOVED. The first observed
+# menu can contain BMARK1 only via targeted bootstrap (disk fallback is
+# empty), making this distinguish hand-off from eventual disk recovery.
 za go-to-tab-name T3; sleep 1
 za rename-pane BMARK1; sleep 1
 press F6
 expect_state "S8-pre menu shown on T3 for bookmarking" T3 T3
 tmux send-keys -t "$HOST" a; sleep 2   # add focused pane (BMARK1) → Effect::Save
+DATA_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/zellij-harpoon/$SES.json"
+grep -q "BMARK1" "$DATA_FILE" 2>/dev/null || { say "FATAL S8 source bookmark did not persist"; exit 1; }
 press Escape                            # close → parked on T3
 expect_state "S8-mid hidden after bookmark add" T3 ""
+rm -f "$DATA_FILE"                     # force disk fallback to empty
 za go-to-tab-name T1; sleep 1
 press F6
-sleep 2   # respawn = fresh wasm load + bootstrap adoption
+FIRST_MENU_RC=1
+SCREEN=""
+for try in $(seq 1 150); do
+  SCREEN="$(scr)"
+  if echo "$SCREEN" | grep -q "===="; then
+    echo "$SCREEN" | grep -q "BMARK1" && FIRST_MENU_RC=0
+    break
+  fi
+  sleep 0.02
+done
 L="$(za dump-layout 2>/dev/null || true)"
-SCREEN="$(scr)"
 f="$(focused_tab_of "$L")"; h="$(harpoon_tab_of "$L")"
-BM_SHOWN=1; echo "$SCREEN" | grep -q "BMARK1" && BM_SHOWN=0
-assert "S8 cross-tab respawn menu lists persisted target BMARK1 (focus=$f harpoon=${h:-hidden})" \
-  "$([ "$f" = T1 ] && [ "$h" = T1 ] && [ "$BM_SHOWN" -eq 0 ]; echo $?)"
-DATA_FILE="${XDG_DATA_HOME:-$HOME/.local/share}/zellij-harpoon/$SES.json"
-BM_DISK=1; grep -q "BMARK1" "$DATA_FILE" 2>/dev/null && BM_DISK=0
-assert "S8-disk persisted file contains BMARK1" "$BM_DISK"
+assert "S8 first observed cross-tab menu gets BMARK1 from hand-off with disk absent (focus=$f harpoon=${h:-hidden})" \
+  "$([ "$f" = T1 ] && [ "$h" = T1 ] && [ "$FIRST_MENU_RC" -eq 0 ]; echo $?)"
+BM_DISK=1
+for try in $(seq 1 100); do
+  grep -q "BMARK1" "$DATA_FILE" 2>/dev/null && { BM_DISK=0; break; }
+  sleep 0.02
+done
+assert "S8 late disk reconcile re-persists handed-off BMARK1" "$BM_DISK"
 
 # ── S9: re-delivered CLI toggle does not hide the fresh menu ────────────
 # AC pane-pipe-api.duplicate-toggle-delivery-tolerance: a CLI-sourced
@@ -309,23 +319,41 @@ expect_state "S9 menu still shown on T3 after stale re-delivery window" T3 T3
 # the persisted bookmark set.
 count_bm() { python3 -c "import json,sys;d=json.load(open('$DATA_FILE'));print(len(d['bookmarks']))" 2>/dev/null || echo 0; }
 BM_BEFORE="$(count_bm)"
+SHRINK_MARKER="$(mktemp)"; SHRINK_STOP="$(mktemp)"; rm -f "$SHRINK_STOP"
+python3 - "$DATA_FILE" "$BM_BEFORE" "$SHRINK_MARKER" "$SHRINK_STOP" <<'PY' &
+import json, pathlib, sys, time
+path, baseline, marker, stop = pathlib.Path(sys.argv[1]), int(sys.argv[2]), pathlib.Path(sys.argv[3]), pathlib.Path(sys.argv[4])
+while not stop.exists():
+    try:
+        data = json.loads(path.read_text())
+        if len(data["bookmarks"]) < baseline:
+            marker.write_text(str(len(data["bookmarks"])))
+            break
+    except (OSError, ValueError, KeyError, TypeError):
+        pass  # ignore in-flight/nonexistent file; only valid JSON can prove shrink
+    time.sleep(0.005)
+PY
+MONITOR_PID=$!
 press F6   # hide (parked on T3)
 za go-to-tab-name T1; sleep 1
 press F6; sleep 2   # respawn cycle 1 → menu on T1
 press F6            # hide (parked on T1)
 za go-to-tab-name T3; sleep 1
 press F6; sleep 2   # respawn cycle 2 → menu on T3
+touch "$SHRINK_STOP"; wait "$MONITOR_PID" || true
 BM_AFTER="$(count_bm)"
-assert "S10 persisted bookmarks never shrink across respawn cycles (before=$BM_BEFORE after=$BM_AFTER)" \
-  "$([ "$BM_AFTER" -ge "$BM_BEFORE" ] && [ "$BM_BEFORE" -ge 1 ]; echo $?)"
+SHRINK_RC=0; [ -s "$SHRINK_MARKER" ] && SHRINK_RC=1
+assert "S10 continuous monitor observes no valid shrinking disk state (before=$BM_BEFORE after=$BM_AFTER)" \
+  "$([ "$SHRINK_RC" -eq 0 ] && [ "$BM_AFTER" -ge "$BM_BEFORE" ] && [ "$BM_BEFORE" -ge 1 ]; echo $?)"
+rm -f "$SHRINK_MARKER" "$SHRINK_STOP"
 
 # ── S11: aggregate permission denial is deny-safe (scope expansion #1) ──
 # Zellij 0.44.3 returns ONE PermissionRequestResult for the whole vector and
 # blocks plugin events while the prompt is open; it cannot report "spawn
 # granted, hand-off denied" independently. Exercise the feasible degrade:
 # remove the seed, answer n in a visible scratch pane, assert session/plugin
-# survive and no new PANIC IN PLUGIN line appears. Denied aggregate uses the
-# deny-safe show-in-place path; no response-decoding host call runs.
+# survive and no new PANIC IN PLUGIN line appears. Denied aggregate leaves
+# terminal visible + plugin suppressed/alive; no gated host call runs.
 SES3="htoggled$$"
 HOST3="htoggled-host$$"
 cleanup3() {

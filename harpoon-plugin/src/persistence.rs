@@ -43,9 +43,13 @@ impl std::fmt::Display for PersistenceError {
 /// provides save/load mechanics.
 #[derive(Default)]
 pub struct Persistence {
-    /// Last canonical envelope written to disk, used for `has_changed`
-    /// comparison.
+    /// Last canonical bookmark baseline, used for `has_changed` and guarded
+    /// shrink classification.
     last_saved_state: Option<PersistedV2>,
+    /// A v1 bare array was loaded successfully. It is a known comparison
+    /// baseline, but the next save must still rewrite the v2 envelope even
+    /// when bookmark rows are otherwise unchanged.
+    needs_v2_migration: bool,
 }
 
 impl Persistence {
@@ -88,6 +92,7 @@ impl Persistence {
             clear_untrusted_pane_ids(&mut v2.bookmarks);
             store.bookmarks = v2.bookmarks.clone();
             self.last_saved_state = Some(v2);
+            self.needs_v2_migration = false;
             // pane_id_to_bookmark_idx stays empty until restore_round resolves.
             return Ok(());
         }
@@ -109,6 +114,7 @@ impl Persistence {
                     version: 2,
                     bookmarks,
                 });
+                self.needs_v2_migration = true;
                 Ok(())
             }
             Err(e) => Err(PersistenceError::LoadFromDiskFailed(e.to_string())),
@@ -139,6 +145,7 @@ impl Persistence {
             version: 2,
             bookmarks,
         });
+        self.needs_v2_migration = false;
     }
 
     /// The last known persisted bookmark list (`None` until a disk load
@@ -152,6 +159,9 @@ impl Persistence {
     /// True iff the current `store.bookmarks` differs from the last
     /// successfully-saved envelope.
     pub fn has_changed(&self, store: &BookmarkStore) -> bool {
+        if self.needs_v2_migration {
+            return true;
+        }
         let candidate = PersistedV2 {
             version: 2,
             bookmarks: store.bookmarks.clone(),
@@ -191,5 +201,6 @@ impl Persistence {
         run_command(&["sh", "-c", &cmd, "_", &json], context);
 
         self.last_saved_state = Some(envelope);
+        self.needs_v2_migration = false;
     }
 }
