@@ -32,8 +32,9 @@
 - [ ] 2.3 Destructive save guard: pure core decisions own complete save
   policy, forbid shrinking saves and preserve bookmarks in memory until
   BOTH resolved disk + full manifest (every known tab); queue unknown-
-  baseline flush; and release deferred disappeared-pane pruning once ready.
-  Tests cite `reorder.destructive-save-guard`.
+  baseline flush; and release deferred disappeared/adopted-absent ids once
+  ready. Duplicate identities use one-to-one multiplicity. Tests cite
+  `reorder.destructive-save-guard`.
   - intent: fix
   - files_allowed:
       - harpoon-core/**
@@ -82,7 +83,8 @@
 
 - [ ] 4.1 Extend `scripts/toggle-pipe-regression.sh` (tmux-hosted scratch
   sessions ONLY): (a) cross-tab respawn presents persisted targets on first
-  render (plus deterministic full-row-projection instrumentation); (b) stale
+  render (plus deterministic full race sequence covering no-index projection,
+  partial guard, and ready prune); (b) stale
   re-delivered toggle does not hide the menu; (c) prune-guard — disk file
   never shrinks during early-save window (plus deterministic partial-
   manifest, deferred-prune, and stale-id-collision instrumentation); (d)

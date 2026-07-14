@@ -29,7 +29,8 @@ remains the cold-boot fallback whenever no bootstrap payload arrives.
   B (B ≠ A) and the respawn branch runs
 - **THEN** the successor's menu SHALL present every persisted jump-target
   row on its first actual render (live pane where resolved, saved
-  `tab_name | pane_title` placeholder where the host manifest is not ready)
+  `tab_name | pane_title` placeholder where the host manifest is not ready,
+  including persisted post-freeze bookmarks with `index=None`)
 - **AND** rendering SHALL remain suppressed rather than expose an empty or
   partial projection (no invoke-again-to-recover)
 

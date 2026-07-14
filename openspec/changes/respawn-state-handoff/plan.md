@@ -52,8 +52,9 @@ review.md equals the merge-base before the first implementation commit.
 - **Action:** two 5-step cycles. Guard tests cite
   `reorder.destructive-save-guard` (core owns complete save policy; suppress
   shrink + preserve in-memory bookmarks before readiness; full manifest =
-  every known tab; queue unknown-baseline flush; deferred disappeared-pane
-  prune resumes once ready). Restore tests cite
+  every known tab; queue unknown-baseline flush; deferred disappeared or
+  adopted-absent ids prune once ready; duplicate identity matching is
+  one-to-one/multiplicity-safe). Restore tests cite
   `reorder.restore-identity-tracks-live-panes` (same-session id-carry through
   hand-off; clear generation-untrusted disk ids before fallback/merge/shrink;
   title-drift refresh emits a save; freeze/placeholder/best-effort
@@ -87,8 +88,8 @@ review.md equals the merge-base before the first implementation commit.
   stale-toggle tolerance; prune-guard disk-shrink window;
   aggregate-permission-denied no-panic + terminal/plugin survival) to
   `scripts/toggle-pipe-regression.sh`, plus deterministic core
-  instrumentation for full first-render projection, partial-manifest,
-  deferred-prune, and stale-id-collision host states; README
+  instrumentation for one composed bootstrap→no-index projection→partial
+  guard→ready prune sequence plus stale-id/multiplicity cases; README
   permission + regrant + hand-off notes.
 - **Verification:** full regression script pass (existing 11 + new
   scenarios); record counts in review.md Execution Notes.
