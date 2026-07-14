@@ -5,8 +5,8 @@
 **review_mode:** adversarial-multimodel
 **reviewer-provenance:** openai-codex/gpt-5.6-sol + claude-bridge/claude-fable-5 (blind via pi-subagents delegate)
 **Diff Base SHA:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4
-**Reviewed Range:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4..8fc491122b9f1d568ff7feb681417b2ac70d248f
-**Attested HEAD:** 8fc491122b9f1d568ff7feb681417b2ac70d248f
+**Reviewed Range:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4..81639347def2c1121d2e4a3791a8db8534cf3e73
+**Attested HEAD:** 81639347def2c1121d2e4a3791a8db8534cf3e73
 **Baseline:** intent.md + proposal + specs + plan + tasks status + constitution/domain (design absent by plain-M decision gate)
 **Generated:** 2026-07-13
 
@@ -23,6 +23,7 @@ open.
 | 1 | blind | 0 | 7 | 3 | 4 | gpt-5.6-sol:fail claude-fable-5:fail | d731bf6e4fcfabdee9bac01511afd01ff5a49c3a |
 | 2 | blind | 2 | 5 | 3 | 3 | gpt-5.6-sol:fail claude-fable-5:fail | 5e6692c145021304959a02b6fb75a4efebc1ee2b |
 | 3 | blind | 1 | 4 | 0 | 1 | gpt-5.6-sol:fail claude-opus-4-8:fail (Fable capacity replacement) | 8fc491122b9f1d568ff7feb681417b2ac70d248f |
+| 4 | blind | 0 | 3 | 1 | 1 | gpt-5.6-sol:fail claude-opus-4-8:pass (Fable capacity replacement) | 81639347def2c1121d2e4a3791a8db8534cf3e73 |
 
 ## Findings
 
@@ -71,6 +72,11 @@ produced no findings file and was INVALID; same blind round was re-dispatched. -
 | r3-sol-4 | Race evidence remains helper-level rather than one deterministic end-to-end state sequence. | P1 | open |
 | r3-opus-1 | Unresolved persisted `index=None` bookmark permanently suppresses menu render. | P0 | open |
 | r3-opus-2 | Duplicate fallback identities mask multiplicity in shrink/merge. | P3 | open |
+| r4-sol-1 | Restore's consumed-visible set resets each round, allowing duplicate fallback rows to claim one pane across staggered rounds. | P1 | open |
+| r4-sol-2 | V1 known baseline suppresses required next-save v2 migration. | P1 | open |
+| r4-sol-3 | Deterministic model does not exercise shipped wiring; S8/S10 remain eventual-only. | P1 | open |
+| r4-opus-1 | Corrupt gapped/duplicate saved indexes can make render equality unsatisfiable. | P2 | open |
+| r4-opus-2 | README hard-wrap nit. | P3 | open |
 
 ## Applied fixes
 
@@ -80,7 +86,10 @@ produced no findings file and was INVALID; same blind round was re-dispatched. -
   fallback, and 23-scenario evidence.
 - Round 2: candidate `8fc4911` added generation-scoped identity, complete core
   save policy, meaningful full-row projection, deferred prune, v1 baseline,
-  denial terminal state, and 25-scenario evidence. Round 3 found gaps above.
+  denial terminal state, and 25-scenario evidence.
+- Round 3: candidate `8163934` added multiset-safe identity, no-index row
+  projection, adopted-id prune enrolment, and a composed core race model.
+  Round 4 found remaining gaps above.
 
 ## Residual risks
 
@@ -89,7 +98,7 @@ produced no findings file and was INVALID; same blind round was re-dispatched. -
 
 ## Verdict rationale
 
-FAIL. Valid blind round-3 reviewers found open P0/P1 correctness and evidence
-gaps. Configured Fable reviewer was INVALID (provider capacity; no
-attestation); unchanged-snapshot Claude Opus replacement supplied second blind
-findings file. Fixes must land before full-diff blind round 4.
+FAIL. Valid blind round-4 reviewers found open P1 correctness/evidence gaps.
+Configured Fable remained unavailable; Sol + unchanged-snapshot Claude Opus
+replacement supplied two valid blind template findings files. Fixes must land
+before full-diff blind round 5.
