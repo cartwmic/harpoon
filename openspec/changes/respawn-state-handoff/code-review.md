@@ -5,8 +5,8 @@
 **review_mode:** adversarial-multimodel
 **reviewer-provenance:** openai-codex/gpt-5.6-sol + claude-bridge/claude-fable-5 (blind via pi-subagents delegate)
 **Diff Base SHA:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4
-**Reviewed Range:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4..5e6692c145021304959a02b6fb75a4efebc1ee2b
-**Attested HEAD:** 5e6692c145021304959a02b6fb75a4efebc1ee2b
+**Reviewed Range:** 887e8faaacc3ad77b7c91116f60976c3360b4ce4..8fc491122b9f1d568ff7feb681417b2ac70d248f
+**Attested HEAD:** 8fc491122b9f1d568ff7feb681417b2ac70d248f
 **Baseline:** intent.md + proposal + specs + plan + tasks status + constitution/domain (design absent by plain-M decision gate)
 **Generated:** 2026-07-13
 
@@ -22,6 +22,7 @@ open.
 |---|---|---|---|---|---|---|---|
 | 1 | blind | 0 | 7 | 3 | 4 | gpt-5.6-sol:fail claude-fable-5:fail | d731bf6e4fcfabdee9bac01511afd01ff5a49c3a |
 | 2 | blind | 2 | 5 | 3 | 3 | gpt-5.6-sol:fail claude-fable-5:fail | 5e6692c145021304959a02b6fb75a4efebc1ee2b |
+| 3 | blind | 1 | 4 | 0 | 1 | gpt-5.6-sol:fail claude-opus-4-8:fail (Fable capacity replacement) | 8fc491122b9f1d568ff7feb681417b2ac70d248f |
 
 ## Findings
 
@@ -64,13 +65,22 @@ produced no findings file and was INVALID; same blind round was re-dispatched. -
 | r2-fable-6 | Post-grant bootstrap session name does not itself trigger exactly-once disk initiation. | P3 | open |
 | r2-fable-7 | Aggregate denial leaves unbounded queued CLI clients blocked. | P3 | open |
 | r2-fable-8 | Identity refresh clones pane-id map every update round. | P3 | open |
+| r3-sol-1 | Identity comparison is not trusted-id-strict or multiplicity-safe for duplicate fallback identities. | P1 | open |
+| r3-sol-2 | Unresolved persisted `index=None` bookmark has no projected row, making full-render equality unsatisfiable. | P1 | open |
+| r3-sol-3 | Adopted resolved id absent from successor manifest is never enrolled in deferred pruning. | P1 | open |
+| r3-sol-4 | Race evidence remains helper-level rather than one deterministic end-to-end state sequence. | P1 | open |
+| r3-opus-1 | Unresolved persisted `index=None` bookmark permanently suppresses menu render. | P0 | open |
+| r3-opus-2 | Duplicate fallback identities mask multiplicity in shrink/merge. | P3 | open |
 
 ## Applied fixes
 
 - Round 1: candidate `5e6692c` added render gating/cached restore, independent
   disk reconciliation, full-manifest/in-memory prune protection, unknown-
   baseline queueing, aggregate permission safety, CLI pre-grant queue, spawn-id
-  fallback, and 23-scenario evidence. Round 2 found remaining gaps above.
+  fallback, and 23-scenario evidence.
+- Round 2: candidate `8fc4911` added generation-scoped identity, complete core
+  save policy, meaningful full-row projection, deferred prune, v1 baseline,
+  denial terminal state, and 25-scenario evidence. Round 3 found gaps above.
 
 ## Residual risks
 
@@ -79,5 +89,7 @@ produced no findings file and was INVALID; same blind round was re-dispatched. -
 
 ## Verdict rationale
 
-FAIL. Both valid blind round-2 reviewers found open P0/P1 baseline and
-correctness gaps. Fixes must land before full-diff blind round 3.
+FAIL. Valid blind round-3 reviewers found open P0/P1 correctness and evidence
+gaps. Configured Fable reviewer was INVALID (provider capacity; no
+attestation); unchanged-snapshot Claude Opus replacement supplied second blind
+findings file. Fixes must land before full-diff blind round 4.
