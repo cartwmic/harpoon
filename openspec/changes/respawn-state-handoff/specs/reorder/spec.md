@@ -21,7 +21,9 @@ the disk load resolves and reconciles — fail-closed deferral avoids replacing
 an unknown fuller disk file with a partial candidate. Once both readiness
 conditions have been observed, normal reconciliation pruning and its saves
 apply unchanged, including deferred removal of a live pane that disappeared
-while pruning was guarded (it SHALL NOT become a permanent unresolved ghost).
+while pruning was guarded OR a same-session hand-off id absent from the
+successor's first full manifest (neither SHALL become a permanent unresolved
+ghost).
 Guard/readiness/save-policy/deferred-prune decisions SHALL be pure logic in
 `harpoon-core` with native tests (Constitution I).
 
@@ -74,9 +76,12 @@ and successor share one generation, so the successor resolves by id without
 title matching.
 
 This requirement SHALL NOT regress the existing restore semantics:
-restore-freeze on user mutation, placeholder slots for unresolved
-saved-index bookmarks, and best-effort ordering for non-unique-identity
-panes all apply unchanged.
+restore-freeze on user mutation, placeholder rows for unresolved bookmarks
+(including valid post-freeze `index=None` rows appended after indexed slots),
+and best-effort ordering for non-unique-identity panes all apply unchanged.
+Merge/shrink comparison SHALL nevertheless preserve duplicate multiplicity:
+trusted differing ids are distinct, and one fallback row SHALL NOT satisfy
+two persisted duplicate rows.
 
 #### Scenario: respawned successor resolves by id, ignoring title drift
 - **GIVEN** a bookmark resolved to pane id 7 whose title has since been

@@ -173,6 +173,19 @@ non-trivial decision is made mid-task. Durable knowledge → retrospective.md. -
   to terminal, retained the suppressed plugin in layout, ignored deny-era
   `show_self`, and added no panic. SE-1/spec corrected to this host-permitted
   inert fallback; no unverified capability is invoked.
+- 2026-07-13 — Round-3 candidate worktree `8fc4911` final validation: core
+  264/264; wasm32-wasip1 release clean; strict OpenSpec valid; shell syntax
+  clean; scratch regression 25/25. S0 now executes four exact deterministic
+  race/collision tests (full target projection, full-manifest coverage,
+  deferred-prune release, stale disk-id rejection); S8–S11 remain green.
+- 2026-07-13 — Blind code-review round 3 at `8fc4911`: valid Sol + Claude
+  Opus replacement both fail; max P0=1/P1=4/P2=0/P3=1; designated doneness
+  = not. Configured Fable exhausted provider capacity before attestation and
+  was INVALID; unchanged-snapshot Opus replacement used. Fix `9bda01a` makes
+  identity matching trusted-id-strict + multiset-safe, projects unresolved
+  `index=None` saved identities, enrolls all adopted live ids in one-shot
+  deferred prune, and adds one composed deterministic race model invoked by
+  S0. Core 266/266, wasm clean, scratch regression 26/26.
 
 ## Fidelity Round Ledger
 
